@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/fatih/color"
@@ -42,6 +43,10 @@ var (
 		cli.BoolFlag{
 			Name:  "force",
 			Usage: "Force a dangerous remove operation.",
+		},
+		cli.BoolFlag{
+			Name:  "namespace",
+			Usage: "Removes entire namespace.",
 		},
 		cli.BoolFlag{
 			Name:  "incomplete, I",
@@ -82,16 +87,22 @@ EXAMPLES:
    1. Remove a file.
       $ {{.HelpName}} 1999/old-backup.tgz
 
-   2. Remove all objects recursively.
+   2. Remove all objects recursively from a bucket.
       $ {{.HelpName}} --recursive s3/jazz-songs/louis/
 
-   3. Remove all objects older than '90' days.
+   3. Remove all objects older than '90' days from a bucket.
       $ {{.HelpName}} --recursive --older-than=90 s3/jazz-songs/louis/
 
    4. Remove all objects read from STDIN.
       $ {{.HelpName}} --force --stdin
 
-   5. Drop all incomplete uploads on 'jazz-songs' bucket.
+   5. Remove all buckets and objects recursively from entire namespace
+      $ {{.HelpName}} --recursive --namespace s3
+
+   6. Remove all buckets and objects older than '90' days from entire namespace
+      $ {{.HelpName}} --recursive --namespace --older-than=90 s3
+
+   7. Drop all incomplete uploads on 'jazz-songs' bucket.
       $ {{.HelpName}} --incomplete --recursive s3/jazz-songs/
 
 `,
@@ -121,14 +132,24 @@ func checkRmSyntax(ctx *cli.Context) {
 	isForce := ctx.Bool("force")
 	isRecursive := ctx.Bool("recursive")
 	isStdin := ctx.Bool("stdin")
-
+	isNamespace := ctx.Bool("namespace")
+	isNamespaceRemoval := false
+	for _, url := range ctx.Args() {
+		if isHostName(url) {
+			isNamespaceRemoval = true
+			break
+		}
+	}
 	if !ctx.Args().Present() && !isStdin {
 		exitCode := 1
 		cli.ShowCommandHelpAndExit(ctx, "rm", exitCode)
 	}
-
+	if (isRecursive || isStdin) && isNamespaceRemoval && !isNamespace {
+		fatalIf(errDummy().Trace(),
+			"Full namespace removal requires --namespace option. This operation removes all the buckets on your namespace. Please review carefully before performing this *DANGEROUS* operation.")
+	}
 	// For all recursive operations make sure to check for 'force' flag.
-	if (isRecursive || isStdin) && !isForce {
+	if (isRecursive || isStdin) && !isNamespaceRemoval && !isForce {
 		fatalIf(errDummy().Trace(),
 			"Removal requires --force option. This operation is *IRREVERSIBLE*. Please review carefully before performing this *DANGEROUS* operation.")
 	}
@@ -220,10 +241,16 @@ func removeRecursive(url string, isIncomplete bool, isFake bool, older int) erro
 		}
 
 		urlString := content.URL.Path
-		printMsg(rmMessage{
-			Key:  targetAlias + urlString,
-			Size: content.Size,
-		})
+		// print the rmMessage only if content is a bucket or object. clnt.List lists
+		// prefixes as well which unifies the S3 listing with folder listing - however
+		// these prefixes are not actual objects on s3 and the content.Time defaults to
+		// zero. Filter these out to prevent erroneous rmMessage being printed to console.
+		if !content.Time.IsZero() {
+			printMsg(rmMessage{
+				Key:  targetAlias + urlString,
+				Size: content.Size,
+			})
+		}
 
 		if !isFake {
 			sent := false
@@ -231,7 +258,11 @@ func removeRecursive(url string, isIncomplete bool, isFake bool, older int) erro
 				select {
 				case contentCh <- content:
 					sent = true
-				case pErr := <-errorCh:
+				case pErr, ok := <-errorCh:
+					if !ok {
+						close(contentCh)
+						return exitStatus(globalErrorExitStatus)
+					}
 					errorIf(pErr.Trace(urlString), "Failed to remove `"+urlString+"`.")
 					switch pErr.ToGoError().(type) {
 					case PathInsufficientPermission:
@@ -239,8 +270,6 @@ func removeRecursive(url string, isIncomplete bool, isFake bool, older int) erro
 						continue
 					}
 
-					close(contentCh)
-					return exitStatus(globalErrorExitStatus)
 				}
 			}
 		}
@@ -264,6 +293,43 @@ func removeRecursive(url string, isIncomplete bool, isFake bool, older int) erro
 	return nil
 }
 
+func isHostName(url string) bool {
+	parts := strings.Split(url, "/")
+	return len(parts) == 1
+}
+
+// removes all the buckets recursively.
+func removeSiteRecursive(url string, isIncomplete bool, isFake bool, older int) (err error) {
+	clnt, pErr := newClient(url)
+	if pErr != nil {
+		errorIf(pErr.Trace(url), "Failed to remove `"+url+"` recursively.")
+		return exitStatus(globalErrorExitStatus) // End of journey.
+	}
+	isRecursive := false
+	for content := range clnt.List(isRecursive, isIncomplete, DirNone) {
+		if content.Err != nil {
+			errorIf(content.Err.Trace(url), "Failed to remove `"+url+"` recursively.")
+			switch content.Err.ToGoError().(type) {
+			case PathInsufficientPermission:
+				// Ignore Permission error.
+				continue
+			}
+			return exitStatus(globalErrorExitStatus)
+		}
+
+		if content.Type.IsRegular() {
+			continue
+		}
+
+		err = removeRecursive(url+content.URL.Path, isIncomplete, isFake, older)
+		if err != nil {
+			return err
+		}
+		continue
+	}
+	return nil
+}
+
 // main for rm command.
 func mainRm(ctx *cli.Context) error {
 
@@ -276,7 +342,7 @@ func mainRm(ctx *cli.Context) error {
 	isFake := ctx.Bool("fake")
 	isStdin := ctx.Bool("stdin")
 	older := ctx.Int("older-than")
-
+	isNamespace := ctx.Bool("namespace")
 	// Set color.
 	console.SetColor("Remove", color.New(color.FgGreen, color.Bold))
 
@@ -285,7 +351,13 @@ func mainRm(ctx *cli.Context) error {
 	// Support multiple targets.
 	for _, url := range ctx.Args() {
 		if isRecursive {
-			err = removeRecursive(url, isIncomplete, isFake, older)
+			if isHostName(url) {
+				if isNamespace {
+					err = removeSiteRecursive(url, isIncomplete, isFake, older)
+				}
+			} else {
+				err = removeRecursive(url, isIncomplete, isFake, older)
+			}
 		} else {
 			err = removeSingle(url, isIncomplete, isFake, older)
 		}
