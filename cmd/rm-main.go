@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -135,7 +136,7 @@ func checkRmSyntax(ctx *cli.Context) {
 	isNamespace := ctx.Bool("namespace")
 	isNamespaceRemoval := false
 	for _, url := range ctx.Args() {
-		if isHostName(url) {
+		if !isAliasURLDir(url) && (strings.Count(url, string(filepath.Separator)) == 0) {
 			isNamespaceRemoval = true
 			break
 		}
@@ -245,7 +246,7 @@ func removeRecursive(url string, isIncomplete bool, isFake bool, older int) erro
 		// prefixes as well which unifies the S3 listing with folder listing - however
 		// these prefixes are not actual objects on s3 and the content.Time defaults to
 		// zero. Filter these out to prevent erroneous rmMessage being printed to console.
-		if !content.Time.IsZero() {
+		if !(content.Time.IsZero() && strings.HasSuffix(urlString, string(filepath.Separator))) {
 			printMsg(rmMessage{
 				Key:  targetAlias + urlString,
 				Size: content.Size,
@@ -258,18 +259,15 @@ func removeRecursive(url string, isIncomplete bool, isFake bool, older int) erro
 				select {
 				case contentCh <- content:
 					sent = true
-				case pErr, ok := <-errorCh:
-					if !ok {
-						close(contentCh)
-						return exitStatus(globalErrorExitStatus)
-					}
+				case pErr := <-errorCh:
 					errorIf(pErr.Trace(urlString), "Failed to remove `"+urlString+"`.")
 					switch pErr.ToGoError().(type) {
 					case PathInsufficientPermission:
 						// Ignore Permission error.
 						continue
 					}
-
+					close(contentCh)
+					return exitStatus(globalErrorExitStatus)
 				}
 			}
 		}
@@ -291,11 +289,6 @@ func removeRecursive(url string, isIncomplete bool, isFake bool, older int) erro
 		printMsg(rmMessage{Key: url})
 	}
 	return nil
-}
-
-func isHostName(url string) bool {
-	parts := strings.Split(url, "/")
-	return len(parts) == 1
 }
 
 // removes all the buckets recursively.
@@ -351,7 +344,7 @@ func mainRm(ctx *cli.Context) error {
 	// Support multiple targets.
 	for _, url := range ctx.Args() {
 		if isRecursive {
-			if isHostName(url) {
+			if !isAliasURLDir(url) && (strings.Count(url, string(filepath.Separator)) == 0) {
 				if isNamespace {
 					err = removeSiteRecursive(url, isIncomplete, isFake, older)
 				}
