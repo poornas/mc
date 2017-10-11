@@ -18,6 +18,7 @@ package cmd
 
 import (
 	"crypto/tls"
+	"fmt"
 	"hash/fnv"
 	"io"
 	"log"
@@ -652,7 +653,7 @@ func (c *s3Client) removeIncompleteObjects(bucket string, objectsCh <-chan strin
 // Remove - remove object or bucket.
 func (c *s3Client) Remove(isIncomplete bool, contentCh <-chan *clientContent) <-chan *probe.Error {
 	//, _ := c.url2BucketAndObject()
-
+	fmt.Println("inside Remove.....")
 	errorCh := make(chan *probe.Error)
 	var bucketContent *clientContent
 
@@ -687,10 +688,12 @@ func (c *s3Client) Remove(isIncomplete bool, contentCh <-chan *clientContent) <-
 					}
 
 				case <-doneCh:
+					fmt.Println("donchannel")
 					return
 				}
 				// Convert content.URL.Path to objectName for objectsCh.
 				bucket, objectName := c.splitPath(content.URL.Path)
+				fmt.Println("bucket==", bucket, " objectname==", objectName, " content.url.path===", content.URL.Path)
 				if isIncomplete {
 					statusCh = c.removeIncompleteObjects(bucket, objectsCh)
 				} else {
@@ -716,6 +719,7 @@ func (c *s3Client) Remove(isIncomplete bool, contentCh <-chan *clientContent) <-
 				select {
 				case objectsCh <- objectName:
 				case <-doneCh:
+					fmt.Println("done with objectsch")
 					return
 				}
 			}
@@ -724,16 +728,19 @@ func (c *s3Client) Remove(isIncomplete bool, contentCh <-chan *clientContent) <-
 		// Read statusCh and write to errorCh.
 		for removeStatus := range statusCh {
 			errorCh <- probe.NewError(removeStatus.Err)
+			fmt.Println("putting stuff in errorch from statusch")
 		}
-
+		fmt.Println("bucketcontent==>", bucketContent)
 		// Remove bucket for regular objects.
 		if bucketContent != nil && !isIncomplete {
+			bucket, _ := c.splitPath(bucketContent.URL.Path)
+			fmt.Println("bnucketname being removed===", bucket, "cointent==", bucketContent.URL.Path)
 			if err := c.api.RemoveBucket(bucket); err != nil {
 				errorCh <- probe.NewError(err)
 			}
 		}
 	}()
-
+	fmt.Println("returning from clnt.Remove")
 	return errorCh
 }
 
@@ -1284,23 +1291,23 @@ func (c *s3Client) bucketStat() clientContent {
 // Recursively lists objects.
 func (c *s3Client) listRecursiveInRoutineDirOpt(contentCh chan *clientContent, dirOpt DirOpt) {
 	defer close(contentCh)
-
+	fmt.Println("inside listRecursiveInRoutineDirOpt")
 	// Closure function reads list objects and sends to contentCh. If a directory is found, it lists
 	// objects of the directory content recursively.
 	var listDir func(bucket, object string) bool
 	listDir = func(bucket, object string) (isStop bool) {
 		isRecursive := false
+		fmt.Println("list DIR function uses bucket,object", bucket, ":", object)
 		for entry := range c.listObjectWrapper(bucket, object, isRecursive, nil) {
+			fmt.Println("listobjectwrapper returned entry", entry)
 			if entry.Err != nil {
 				url := *c.targetURL
 				url.Path = c.joinPath(bucket, object)
 				contentCh <- &clientContent{URL: url, Err: probe.NewError(entry.Err)}
-
 				errResponse := minio.ToErrorResponse(entry.Err)
 				if errResponse.Code == "AccessDenied" {
 					continue
 				}
-
 				return true
 			}
 
@@ -1325,38 +1332,81 @@ func (c *s3Client) listRecursiveInRoutineDirOpt(contentCh chan *clientContent, d
 		return false
 	}
 
-	bucket, object := c.url2BucketAndObject()
+	b, o := c.url2BucketAndObject()
+	switch {
+	case b == "" && o == "":
+		buckets, err := c.api.ListBuckets()
+		if err != nil {
+			contentCh <- &clientContent{
+				Err: probe.NewError(err),
+			}
+			return
+		}
+		for _, bucket := range buckets {
+			isRecursive := true
+			for object := range c.listObjectWrapper(bucket.Name, o, isRecursive, nil) {
+				// Return error if we encountered glacier object and continue.
+				if object.StorageClass == s3StorageClassGlacier {
+					contentCh <- &clientContent{
+						Err: probe.NewError(ObjectOnGlacier{object.Key}),
+					}
+					continue
+				}
+				if object.Err != nil {
+					contentCh <- &clientContent{
+						Err: probe.NewError(object.Err),
+					}
+					continue
+				}
+				content := &clientContent{}
+				objectURL := *c.targetURL
+				objectURL.Path = c.joinPath(bucket.Name, object.Key)
+				content.URL = objectURL
+				content.Size = object.Size
+				content.Time = object.LastModified
+				content.Type = os.FileMode(0664)
+				contentCh <- content
+				fmt.Println("content from override==", content)
+			}
+			if dirOpt == DirLast {
+				urlPath := newClientURL(string(c.targetURL.Separator) + bucket.Name + string(c.targetURL.Separator))
+				content := clientContent{URL: *urlPath, Time: bucket.CreationDate, Type: os.ModeDir}
+				contentCh <- &content
+			}
+		}
+	default:
+		var cContent *clientContent
 
-	var cContent *clientContent
+		// Get bucket stat if object is empty.
+		if o == "" {
+			content := c.bucketStat()
+			cContent = &content
 
-	// Get bucket stat if object is empty.
-	if object == "" {
-		content := c.bucketStat()
-		cContent = &content
+			if content.Err != nil {
+				contentCh <- cContent
+				return
+			}
+		} else if strings.HasSuffix(o, string(c.targetURL.Separator)) {
+			// Get stat of given object is a directory.
+			isIncomplete := false
+			content, perr := c.Stat(isIncomplete)
+			cContent = content
+			if perr != nil {
+				contentCh <- &clientContent{URL: *c.targetURL, Err: perr}
+				return
+			}
+		}
 
-		if content.Err != nil {
+		if cContent != nil && dirOpt == DirFirst {
 			contentCh <- cContent
-			return
 		}
-	} else if strings.HasSuffix(object, string(c.targetURL.Separator)) {
-		// Get stat of given object is a directory.
-		isIncomplete := false
-		content, perr := c.Stat(isIncomplete)
-		cContent = content
-		if perr != nil {
-			contentCh <- &clientContent{URL: *c.targetURL, Err: perr}
-			return
+
+		listDir(b, o)
+
+		if cContent != nil && dirOpt == DirLast {
+			fmt.Println("putting content into channel for dirlast")
+			contentCh <- cContent
 		}
-	}
-
-	if cContent != nil && dirOpt == DirFirst {
-		contentCh <- cContent
-	}
-
-	listDir(bucket, object)
-
-	if cContent != nil && dirOpt == DirLast {
-		contentCh <- cContent
 	}
 }
 
@@ -1487,6 +1537,8 @@ func (c *s3Client) listRecursiveInRoutine(contentCh chan *clientContent) {
 				content.Time = object.LastModified
 				content.Type = os.FileMode(0664)
 				contentCh <- content
+				fmt.Println("list-recursive DIRNONE--->", content)
+
 			}
 		}
 	default:

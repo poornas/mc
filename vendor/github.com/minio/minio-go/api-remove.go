@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/xml"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -108,6 +109,8 @@ func generateRemoveMultiObjectsRequest(objects []string) []byte {
 // processRemoveMultiObjectsResponse - parse the remove multi objects web service
 // and return the success/failure result status for each object
 func processRemoveMultiObjectsResponse(body io.Reader, objects []string, errorCh chan<- RemoveObjectError) {
+	fmt.Println("processRemoveMultiObjectsResponse:::")
+
 	// Parse multi delete XML response
 	rmResult := &deleteMultiObjectsResult{}
 	err := xmlDecoder(body, rmResult)
@@ -171,6 +174,7 @@ func (c Client) RemoveObjects(bucketName string, objectsCh <-chan string) <-chan
 
 			// Try to gather 1000 entries
 			for object := range objectsCh {
+				fmt.Println("batching....", object)
 				batch = append(batch, object)
 				if count++; count >= maxEntries {
 					break
@@ -198,6 +202,7 @@ func (c Client) RemoveObjects(bucketName string, objectsCh <-chan string) <-chan
 			})
 			if err != nil {
 				for _, b := range batch {
+					fmt.Println("errorchannel removeobjecterror:::", b, err)
 					errorCh <- RemoveObjectError{ObjectName: b, Err: err}
 				}
 				continue
@@ -207,8 +212,10 @@ func (c Client) RemoveObjects(bucketName string, objectsCh <-chan string) <-chan
 			processRemoveMultiObjectsResponse(resp.Body, batch, errorCh)
 
 			closeResponse(resp)
+			fmt.Println("after close response..")
 		}
 	}(errorCh)
+	fmt.Println("returning erorrchannell from clnt.Remove")
 	return errorCh
 }
 

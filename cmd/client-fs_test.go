@@ -209,7 +209,7 @@ func (s *TestSuite) TestStatBucket(c *C) {
 	c.Assert(err, IsNil)
 	err = fsClient.MakeBucket("us-east-1", true)
 	c.Assert(err, IsNil)
-	_, err = fsClient.Stat(false)
+	_, err = fsClient.Stat(false, false)
 	c.Assert(err, IsNil)
 }
 
@@ -333,7 +333,7 @@ func (s *TestSuite) TestStatObject(c *C) {
 	c.Assert(err, IsNil)
 	c.Assert(n, Equals, int64(len(data)))
 
-	content, err := fsClient.Stat(false)
+	content, err := fsClient.Stat(false, false)
 	c.Assert(err, IsNil)
 	c.Assert(content.Size, Equals, int64(dataLen))
 }

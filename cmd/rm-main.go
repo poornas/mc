@@ -209,19 +209,22 @@ func removeRecursive(url string, isIncomplete bool, isFake bool, older int) erro
 	targetAlias, targetURL, _ := mustExpandAlias(url)
 	clnt, pErr := newClientFromAlias(targetAlias, targetURL)
 	if pErr != nil {
-		errorIf(pErr.Trace(url), "Failed to remove `"+url+"` recursively.")
+		errorIf(pErr.Trace(url), "##1:Failed to remove `"+url+"` recursively.")
 		return exitStatus(globalErrorExitStatus) // End of journey.
 	}
 
 	contentCh := make(chan *clientContent)
-	errorCh := clnt.Remove(isIncomplete, contentCh)
+	fmt.Println("before remove call...")
 
+	errorCh := clnt.Remove(isIncomplete, contentCh)
+	fmt.Println("before list")
 	isEmpty := true
 	isRecursive := true
 	for content := range clnt.List(isRecursive, isIncomplete, DirLast) {
+		fmt.Println("went inside list::", content)
 		isEmpty = false
 		if content.Err != nil {
-			errorIf(content.Err.Trace(url), "Failed to remove `"+url+"` recursively.")
+			errorIf(content.Err.Trace(url), "##@:Failed to remove `"+url+"` recursively.")
 			switch content.Err.ToGoError().(type) {
 			case PathInsufficientPermission:
 				// Ignore Permission error.
@@ -260,7 +263,7 @@ func removeRecursive(url string, isIncomplete bool, isFake bool, older int) erro
 				case contentCh <- content:
 					sent = true
 				case pErr := <-errorCh:
-					errorIf(pErr.Trace(urlString), "Failed to remove `"+urlString+"`.")
+					errorIf(pErr.Trace(urlString), "#1:Failed to remove `"+urlString+"`.")
 					switch pErr.ToGoError().(type) {
 					case PathInsufficientPermission:
 						// Ignore Permission error.
@@ -275,7 +278,7 @@ func removeRecursive(url string, isIncomplete bool, isFake bool, older int) erro
 
 	close(contentCh)
 	for pErr := range errorCh {
-		errorIf(pErr.Trace(url), "Failed to remove `"+url+"` recursively.")
+		errorIf(pErr.Trace(url), "#2:Failed to remove `"+url+"` recursively.")
 		switch pErr.ToGoError().(type) {
 		case PathInsufficientPermission:
 			// Ignore Permission error.
