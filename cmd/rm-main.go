@@ -46,7 +46,7 @@ var (
 			Usage: "Force a dangerous remove operation.",
 		},
 		cli.BoolFlag{
-			Name:  "namespace",
+			Name:  "dangerous",
 			Usage: "Removes entire namespace.",
 		},
 		cli.BoolFlag{
@@ -133,7 +133,7 @@ func checkRmSyntax(ctx *cli.Context) {
 	isForce := ctx.Bool("force")
 	isRecursive := ctx.Bool("recursive")
 	isStdin := ctx.Bool("stdin")
-	isNamespace := ctx.Bool("namespace")
+	isDangerous := ctx.Bool("dangerous")
 	isNamespaceRemoval := false
 	for _, url := range ctx.Args() {
 		if !isAliasURLDir(url) && (strings.Count(url, string(filepath.Separator)) == 0) {
@@ -145,9 +145,9 @@ func checkRmSyntax(ctx *cli.Context) {
 		exitCode := 1
 		cli.ShowCommandHelpAndExit(ctx, "rm", exitCode)
 	}
-	if (isRecursive || isStdin) && isNamespaceRemoval && !isNamespace {
+	if (isRecursive || isStdin) && isNamespaceRemoval && !isDangerous {
 		fatalIf(errDummy().Trace(),
-			"Full namespace removal requires --namespace option. This operation removes all the buckets on your namespace. Please review carefully before performing this *DANGEROUS* operation.")
+			"Full namespace removal requires --dangerous option. This operation removes all the buckets on your namespace. Please review carefully before performing this *DANGEROUS* operation.")
 	}
 	// For all recursive operations make sure to check for 'force' flag.
 	if (isRecursive || isStdin) && !isNamespaceRemoval && !isForce {
@@ -335,7 +335,7 @@ func mainRm(ctx *cli.Context) error {
 	isFake := ctx.Bool("fake")
 	isStdin := ctx.Bool("stdin")
 	older := ctx.Int("older-than")
-	isNamespace := ctx.Bool("namespace")
+	//isDangerous := ctx.Bool("dangerous")
 	// Set color.
 	console.SetColor("Remove", color.New(color.FgGreen, color.Bold))
 
@@ -344,13 +344,13 @@ func mainRm(ctx *cli.Context) error {
 	// Support multiple targets.
 	for _, url := range ctx.Args() {
 		if isRecursive {
-			if !isAliasURLDir(url) && (strings.Count(url, string(filepath.Separator)) == 0) {
-				if isNamespace {
-					err = removeSiteRecursive(url, isIncomplete, isFake, older)
-				}
-			} else {
-				err = removeRecursive(url, isIncomplete, isFake, older)
-			}
+			// if !isAliasURLDir(url) && (strings.Count(url, string(filepath.Separator)) == 0) {
+			// 	if isNamespace {
+			// 		err = removeSiteRecursive(url, isIncomplete, isFake, older)
+			// 	}
+			// } else {
+			err = removeRecursive(url, isIncomplete, isFake, older)
+			//}
 		} else {
 			err = removeSingle(url, isIncomplete, isFake, older)
 		}
