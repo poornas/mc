@@ -651,7 +651,7 @@ func (c *s3Client) removeIncompleteObjects(bucket string, objectsCh <-chan strin
 
 // Remove - remove object or bucket.
 func (c *s3Client) Remove(isIncomplete bool, contentCh <-chan *clientContent) <-chan *probe.Error {
-	bucket, _ := c.url2BucketAndObject()
+	//, _ := c.url2BucketAndObject()
 
 	errorCh := make(chan *probe.Error)
 	var bucketContent *clientContent
@@ -666,11 +666,6 @@ func (c *s3Client) Remove(isIncomplete bool, contentCh <-chan *clientContent) <-
 
 		objectsCh := make(chan string)
 		var statusCh <-chan minio.RemoveObjectError
-		if isIncomplete {
-			statusCh = c.removeIncompleteObjects(bucket, objectsCh)
-		} else {
-			statusCh = c.api.RemoveObjects(bucket, objectsCh)
-		}
 
 		// doneCh to control below Goroutine.
 		doneCh := make(chan struct{})
@@ -690,12 +685,17 @@ func (c *s3Client) Remove(isIncomplete bool, contentCh <-chan *clientContent) <-
 						// Closed channel.
 						return
 					}
+
 				case <-doneCh:
 					return
 				}
-
 				// Convert content.URL.Path to objectName for objectsCh.
-				_, objectName := c.splitPath(content.URL.Path)
+				bucket, objectName := c.splitPath(content.URL.Path)
+				if isIncomplete {
+					statusCh = c.removeIncompleteObjects(bucket, objectsCh)
+				} else {
+					statusCh = c.api.RemoveObjects(bucket, objectsCh)
+				}
 
 				// Currently only supported hosts with virtual style
 				// are Amazon S3 and Google Cloud Storage.
