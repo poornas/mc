@@ -19,6 +19,7 @@ package cmd
 import (
 	"context"
 	"crypto/tls"
+	"fmt"
 	"hash/fnv"
 	"io"
 	"log"
@@ -737,6 +738,7 @@ func (c *s3Client) Remove(isIncomplete bool, contentCh <-chan *clientContent) <-
 	}()
 
 	return errorCh
+
 }
 
 // MakeBucket - make a new bucket.
@@ -1247,8 +1249,7 @@ func (c *s3Client) joinPath(segments ...string) string {
 }
 
 // Convert objectInfo to clientContent
-func (c *s3Client) objectInfo2ClientContent(entry minio.ObjectInfo) clientContent {
-	bucket, _ := c.url2BucketAndObject()
+func (c *s3Client) objectInfo2ClientContent(bucket string, entry minio.ObjectInfo) clientContent {
 
 	content := clientContent{}
 	url := *c.targetURL
@@ -1289,13 +1290,14 @@ func (c *s3Client) bucketStat() clientContent {
 // Recursively lists objects.
 func (c *s3Client) listRecursiveInRoutineDirOpt(contentCh chan *clientContent, dirOpt DirOpt) {
 	defer close(contentCh)
-
 	// Closure function reads list objects and sends to contentCh. If a directory is found, it lists
 	// objects of the directory content recursively.
 	var listDir func(bucket, object string) bool
 	listDir = func(bucket, object string) (isStop bool) {
+		//fmt.Println(bucket + ":" + object)
 		isRecursive := false
 		for entry := range c.listObjectWrapper(bucket, object, isRecursive, nil) {
+			//	fmt.Println("fetched entry:::", entry)
 			if entry.Err != nil {
 				url := *c.targetURL
 				url.Path = c.joinPath(bucket, object)
@@ -1305,11 +1307,10 @@ func (c *s3Client) listRecursiveInRoutineDirOpt(contentCh chan *clientContent, d
 				if errResponse.Code == "AccessDenied" {
 					continue
 				}
-
 				return true
 			}
 
-			content := c.objectInfo2ClientContent(entry)
+			content := c.objectInfo2ClientContent(bucket, entry)
 
 			// Handle if object.Key is a directory.
 			if content.Type.IsDir() {
@@ -1320,6 +1321,7 @@ func (c *s3Client) listRecursiveInRoutineDirOpt(contentCh chan *clientContent, d
 					return true
 				}
 				if dirOpt == DirLast {
+					fmt.Println("0::contentCh <-- ", content)
 					contentCh <- &content
 				}
 			} else {
@@ -1333,16 +1335,24 @@ func (c *s3Client) listRecursiveInRoutineDirOpt(contentCh chan *clientContent, d
 	bucket, object := c.url2BucketAndObject()
 
 	var cContent *clientContent
-
-	// Get bucket stat if object is empty.
-	if object == "" {
+	var buckets []minio.BucketInfo
+	var allBuckets bool
+	// List all buckets if bucket and object are empty.
+	if bucket == "" && object == "" {
+		var err error
+		buckets, err = c.api.ListBuckets()
+		if err != nil {
+			contentCh <- &clientContent{URL: *c.targetURL, Err: probe.NewError(err)}
+		}
+	} else if object == "" {
+		// Get bucket stat if object is empty.
 		content := c.bucketStat()
 		cContent = &content
-
 		if content.Err != nil {
 			contentCh <- cContent
 			return
 		}
+		buckets = append(buckets, minio.BucketInfo{Name: bucket, CreationDate: content.Time})
 	} else if strings.HasSuffix(object, string(c.targetURL.Separator)) {
 		// Get stat of given object is a directory.
 		isIncomplete := false
@@ -1352,16 +1362,28 @@ func (c *s3Client) listRecursiveInRoutineDirOpt(contentCh chan *clientContent, d
 			contentCh <- &clientContent{URL: *c.targetURL, Err: perr}
 			return
 		}
+		buckets = append(buckets, minio.BucketInfo{Name: bucket, CreationDate: content.Time})
 	}
+	for _, bucket := range buckets {
+		if allBuckets {
+			url := *c.targetURL
+			url.Path = c.joinPath(bucket.Name)
+			cContent = &clientContent{
+				URL:  url,
+				Time: bucket.CreationDate,
+				Type: os.ModeDir,
+			}
+		}
+		if cContent != nil && dirOpt == DirFirst {
+			contentCh <- cContent
+		}
 
-	if cContent != nil && dirOpt == DirFirst {
-		contentCh <- cContent
-	}
+		listDir(bucket.Name, object)
 
-	listDir(bucket, object)
-
-	if cContent != nil && dirOpt == DirLast {
-		contentCh <- cContent
+		if cContent != nil && dirOpt == DirLast {
+			fmt.Println("1::contentCH <-- ", cContent)
+			contentCh <- cContent
+		}
 	}
 }
 
