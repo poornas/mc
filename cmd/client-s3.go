@@ -652,95 +652,6 @@ func (c *s3Client) removeIncompleteObjects(bucket string, objectsCh <-chan strin
 	return removeObjectErrorCh
 }
 
-// Remove - remove object or bucket.
-func (c *s3Client) Remove(isIncomplete bool, contentCh <-chan *clientContent) <-chan *probe.Error {
-	bucket, _ := c.url2BucketAndObject()
-
-	errorCh := make(chan *probe.Error)
-	var bucketContent *clientContent
-
-	// Goroutine
-	// 1. calls removeIncompleteObjects() for incomplete uploads
-	//    or minio-go.RemoveObjects().
-	// 2. executes another Goroutine to copy contentCh to objectsCh.
-	// 3. reads statusCh and copies to errorCh.
-	go func() {
-		defer close(errorCh)
-
-		objectsCh := make(chan string)
-		var statusCh <-chan minio.RemoveObjectError
-		if isIncomplete {
-			statusCh = c.removeIncompleteObjects(bucket, objectsCh)
-		} else {
-			statusCh = c.api.RemoveObjects(bucket, objectsCh)
-		}
-
-		// doneCh to control below Goroutine.
-		doneCh := make(chan struct{})
-		defer close(doneCh)
-
-		// Goroutine reads contentCh and copies to objectsCh.
-		go func() {
-			defer close(objectsCh)
-
-			for {
-				// Read from contentCh or doneCh.  If doneCh is read, exit the function.
-				var content *clientContent
-				var ok bool
-				select {
-				case content, ok = <-contentCh:
-					if !ok {
-						// Closed channel.
-						return
-					}
-				case <-doneCh:
-					return
-				}
-
-				// Convert content.URL.Path to objectName for objectsCh.
-				_, objectName := c.splitPath(content.URL.Path)
-
-				// Currently only supported hosts with virtual style
-				// are Amazon S3 and Google Cloud Storage.
-				// which also support objects with "/" as delimiter.
-				// Skip trimming "/" and let the server reply error
-				// if any.
-				if !c.virtualStyle {
-					objectName = strings.TrimSuffix(objectName, string(c.targetURL.Separator))
-				}
-
-				// As object name is empty, we need to remove the bucket as well.
-				if objectName == "" {
-					bucketContent = content
-					continue
-				}
-
-				// Write to objectsCh or read doneCh. If doneCh is read, exit the function.
-				select {
-				case objectsCh <- objectName:
-				case <-doneCh:
-					return
-				}
-			}
-		}()
-
-		// Read statusCh and write to errorCh.
-		for removeStatus := range statusCh {
-			errorCh <- probe.NewError(removeStatus.Err)
-		}
-
-		// Remove bucket for regular objects.
-		if bucketContent != nil && !isIncomplete {
-			if err := c.api.RemoveBucket(bucket); err != nil {
-				errorCh <- probe.NewError(err)
-			}
-		}
-	}()
-
-	return errorCh
-
-}
-
 // MakeBucket - make a new bucket.
 func (c *s3Client) MakeBucket(region string, ignoreExisting bool) *probe.Error {
 	bucket, object := c.url2BucketAndObject()
@@ -1294,10 +1205,8 @@ func (c *s3Client) listRecursiveInRoutineDirOpt(contentCh chan *clientContent, d
 	// objects of the directory content recursively.
 	var listDir func(bucket, object string) bool
 	listDir = func(bucket, object string) (isStop bool) {
-		//fmt.Println(bucket + ":" + object)
 		isRecursive := false
 		for entry := range c.listObjectWrapper(bucket, object, isRecursive, nil) {
-			//	fmt.Println("fetched entry:::", entry)
 			if entry.Err != nil {
 				url := *c.targetURL
 				url.Path = c.joinPath(bucket, object)
@@ -1321,14 +1230,12 @@ func (c *s3Client) listRecursiveInRoutineDirOpt(contentCh chan *clientContent, d
 					return true
 				}
 				if dirOpt == DirLast {
-					fmt.Println("0::contentCh <-- ", content)
 					contentCh <- &content
 				}
 			} else {
 				contentCh <- &content
 			}
 		}
-
 		return false
 	}
 
@@ -1340,6 +1247,7 @@ func (c *s3Client) listRecursiveInRoutineDirOpt(contentCh chan *clientContent, d
 	// List all buckets if bucket and object are empty.
 	if bucket == "" && object == "" {
 		var err error
+		allBuckets = true
 		buckets, err = c.api.ListBuckets()
 		if err != nil {
 			contentCh <- &clientContent{URL: *c.targetURL, Err: probe.NewError(err)}
@@ -1365,6 +1273,7 @@ func (c *s3Client) listRecursiveInRoutineDirOpt(contentCh chan *clientContent, d
 		buckets = append(buckets, minio.BucketInfo{Name: bucket, CreationDate: content.Time})
 	}
 	for _, bucket := range buckets {
+
 		if allBuckets {
 			url := *c.targetURL
 			url.Path = c.joinPath(bucket.Name)
@@ -1381,7 +1290,6 @@ func (c *s3Client) listRecursiveInRoutineDirOpt(contentCh chan *clientContent, d
 		listDir(bucket.Name, object)
 
 		if cContent != nil && dirOpt == DirLast {
-			fmt.Println("1::contentCH <-- ", cContent)
 			contentCh <- cContent
 		}
 	}
@@ -1585,4 +1493,105 @@ func (c *s3Client) ShareUpload(isRecursive bool, expires time.Duration, contentT
 		return "", nil, probe.NewError(e)
 	}
 	return u.String(), m, nil
+}
+
+func (c *s3Client) Remove(isIncomplete bool, contentCh <-chan *clientContent) <-chan *probe.Error {
+	errorCh := make(chan *probe.Error)
+	// As long as content is for same bucket, send it to api remove goroutine via the objectsCh
+	// when bucket changes:
+	// close contentChannel
+	//
+	prevBucket := ""
+	var cContentCh chan *clientContent
+	doneCh := make(chan struct{})
+	defer close(doneCh)
+	var objectsCh chan string
+	var statusCh <-chan minio.RemoveObjectError
+	isRemoveBucket := false
+	go func() {
+		defer close(errorCh)
+		for content := range contentCh {
+			bucket, objectName := c.splitPath(content.URL.Path)
+			if prevBucket == "" {
+				cContentCh = make(chan *clientContent)
+				objectsCh = make(chan string)
+				prevBucket = bucket
+				if isIncomplete {
+					statusCh = c.removeIncompleteObjects(bucket, objectsCh)
+				} else {
+					statusCh = c.api.RemoveObjects(bucket, objectsCh)
+				}
+				fmt.Println("----Init ccontentch,objectsch and statusch for ", bucket)
+			}
+
+			if prevBucket != bucket {
+				fmt.Println("-> prevBucket=", prevBucket, ":: current bucket==", bucket, ":going to close cContentch:: removeBucketflag=", isRemoveBucket)
+				close(cContentCh)
+				fmt.Println(" -> isrEMVOBucket==", isRemoveBucket, ":: objectname=", objectName)
+				if isRemoveBucket {
+					fmt.Println(" -->sanction remove bucket;; statusCh=", prevBucket, statusCh)
+					for removeStatus := range statusCh {
+						errorCh <- probe.NewError(removeStatus.Err)
+					}
+					if !isIncomplete {
+						fmt.Println("****** removing bucket *******", prevBucket)
+
+						if err := c.api.RemoveBucket(prevBucket); err != nil {
+							errorCh <- probe.NewError(err)
+						}
+						fmt.Println(" ---- Init ccontentch, objectsch and nix isRemoveBucket for", bucket)
+						isRemoveBucket = false
+						cContentCh = make(chan *clientContent)
+						objectsCh = make(chan string)
+						if isIncomplete {
+							statusCh = c.removeIncompleteObjects(bucket, objectsCh)
+						} else {
+							statusCh = c.api.RemoveObjects(bucket, objectsCh)
+						}
+					}
+				}
+				prevBucket = bucket
+			}
+			if objectName != "" {
+				fmt.Println("... sending to objectsCh::", objectName)
+				objectsCh <- objectName
+			} else {
+				fmt.Println("closing objectsChannel & nil.... setRemoveBucket to true for ", prevBucket)
+				isRemoveBucket = true
+				close(objectsCh)
+				objectsCh = nil //seems hacky
+			}
+			fmt.Println("****  kpRemove:1.Rfetched:::", bucket, ":", objectName, objectsCh)
+
+		}
+		fmt.Println("^^^^^^^^^^^^^^^ outside for loop ccontentch=", cContentCh, " objectsch ==", objectsCh)
+		if cContentCh != nil {
+			fmt.Println("...closing cCONTentch...")
+			close(cContentCh)
+		}
+		if objectsCh != nil {
+			fmt.Println("...closing objectsCh...")
+			close(objectsCh)
+		}
+
+		fmt.Println("~~~~~~~~~~~looks like statusch hangs...", statusCh)
+		if statusCh != nil {
+			for removeStatus := range statusCh {
+				errorCh <- probe.NewError(removeStatus.Err)
+			}
+		}
+
+		fmt.Println("~~~~~~~~~~~isRemoveBucket===~~~~~~~~~~~", isRemoveBucket)
+
+		if isRemoveBucket && !isIncomplete {
+			fmt.Println("** removing#2 prev-bucket **", prevBucket)
+
+			if err := c.api.RemoveBucket(prevBucket); err != nil {
+				errorCh <- probe.NewError(err)
+			}
+		}
+
+	}()
+
+	return errorCh
 }

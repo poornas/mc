@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/xml"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -133,7 +134,7 @@ func processRemoveMultiObjectsResponse(body io.Reader, objects []string, errorCh
 // Remove failures are sent back via error channel.
 func (c Client) RemoveObjects(bucketName string, objectsCh <-chan string) <-chan RemoveObjectError {
 	errorCh := make(chan RemoveObjectError, 1)
-
+	fmt.Println("kp:inside api.RemoveO", bucketName, objectsCh)
 	// Validate if bucket name is valid.
 	if err := s3utils.CheckValidBucketName(bucketName); err != nil {
 		defer close(errorCh)
@@ -150,9 +151,11 @@ func (c Client) RemoveObjects(bucketName string, objectsCh <-chan string) <-chan
 		}
 		return errorCh
 	}
-
+	fmt.Println("kp::???????")
 	// Generate and call MultiDelete S3 requests based on entries received from objectsCh
 	go func(errorCh chan<- RemoveObjectError) {
+		fmt.Println("kp:inside api.RemoveO#1")
+
 		maxEntries := 1000
 		finish := false
 		urlValues := make(url.Values)
@@ -168,23 +171,28 @@ func (c Client) RemoveObjects(bucketName string, objectsCh <-chan string) <-chan
 			}
 			count := 0
 			var batch []string
-
+			fmt.Println("waiting on objch?")
 			// Try to gather 1000 entries
 			for object := range objectsCh {
+				fmt.Println("kp:api::remove::received from objectsCh:", object)
 				batch = append(batch, object)
 				if count++; count >= maxEntries {
 					break
 				}
 			}
+			fmt.Println("ifiam here it is good", count)
 			if count == 0 {
+				fmt.Println("breaking....")
 				// Multi Objects Delete API doesn't accept empty object list, quit immediately
 				break
 			}
 			if count < maxEntries {
 				// We didn't have 1000 entries, so this is the last batch
+				fmt.Println("kp:inside api.RemoveO#2")
+
 				finish = true
 			}
-
+			fmt.Println("after apicall")
 			// Generate remove multi objects XML request
 			removeBytes := generateRemoveMultiObjectsRequest(batch)
 			// Execute GET on bucket to list objects.
@@ -202,13 +210,14 @@ func (c Client) RemoveObjects(bucketName string, objectsCh <-chan string) <-chan
 				}
 				continue
 			}
-
+			fmt.Println(":((((")
 			// Process multiobjects remove xml response
 			processRemoveMultiObjectsResponse(resp.Body, batch, errorCh)
 
 			closeResponse(resp)
 		}
 	}(errorCh)
+	fmt.Println("exiting apic all")
 	return errorCh
 }
 
