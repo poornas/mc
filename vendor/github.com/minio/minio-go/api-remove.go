@@ -20,7 +20,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/xml"
-	"fmt"
 	"io"
 	"net/http"
 	"net/url"
