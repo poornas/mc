@@ -215,9 +215,6 @@ func removeRecursive(url string, isIncomplete bool, isFake bool, older int) erro
 	isRecursive := true
 	for content := range clnt.List(isRecursive, isIncomplete, DirLast) {
 		isEmpty = false
-		if content.Err == nil {
-			//continue
-		}
 		if content.Err != nil {
 			errorIf(content.Err.Trace(url), "Failed to remove `"+url+"` recursively.")
 			switch content.Err.ToGoError().(type) {
@@ -228,6 +225,7 @@ func removeRecursive(url string, isIncomplete bool, isFake bool, older int) erro
 			close(contentCh)
 			return exitStatus(globalErrorExitStatus)
 		}
+		urlString := content.URL.Path
 
 		if older > 0 {
 			// Check whether object is created older than given time.
@@ -239,11 +237,12 @@ func removeRecursive(url string, isIncomplete bool, isFake bool, older int) erro
 			}
 		}
 
-		urlString := content.URL.Path
-		printMsg(rmMessage{
-			Key:  targetAlias + urlString,
-			Size: content.Size,
-		})
+		if !(content.Time.IsZero() && strings.HasSuffix(urlString, string(filepath.Separator))) {
+			printMsg(rmMessage{
+				Key:  targetAlias + urlString,
+				Size: content.Size,
+			})
+		}
 		if !isFake {
 			sent := false
 			for !sent {

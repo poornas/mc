@@ -666,7 +666,16 @@ func (c *s3Client) Remove(isIncomplete bool, contentCh <-chan *clientContent) <-
 	go func() {
 		defer close(errorCh)
 		for content := range contentCh {
+			// Convert content.URL.Path to objectName for objectsCh.
 			bucket, objectName := c.splitPath(content.URL.Path)
+			// Currently only supported hosts with virtual style
+			// are Amazon S3 and Google Cloud Storage.
+			// which also support objects with "/" as delimiter.
+			// Skip trimming "/" and let the server reply error
+			// if any.
+			if !c.virtualStyle {
+				objectName = strings.TrimSuffix(objectName, string(c.targetURL.Separator))
+			}
 			// Init cContentCh channel and objectsCh the first time.
 			if prevBucket == "" {
 				cContentCh = make(chan *clientContent)
@@ -681,8 +690,11 @@ func (c *s3Client) Remove(isIncomplete bool, contentCh <-chan *clientContent) <-
 
 			if prevBucket != bucket {
 				// Close cContentCh when bucket changes. Remove bucket if
-				//it qualifies.
+				// it qualifies.
 				close(cContentCh)
+				if objectsCh != nil {
+					close(objectsCh)
+				}
 				for removeStatus := range statusCh {
 					errorCh <- probe.NewError(removeStatus.Err)
 				}
@@ -691,7 +703,7 @@ func (c *s3Client) Remove(isIncomplete bool, contentCh <-chan *clientContent) <-
 						errorCh <- probe.NewError(err)
 					}
 				}
-				//re-init cContentCh and objectsCh for next bucket
+				// re-init cContentCh and objectsCh for next bucket
 				isRemoveBucket = false
 				cContentCh = make(chan *clientContent)
 				objectsCh = make(chan string)
@@ -706,7 +718,7 @@ func (c *s3Client) Remove(isIncomplete bool, contentCh <-chan *clientContent) <-
 			if objectName != "" {
 				objectsCh <- objectName
 			} else {
-				//end of bucket - close the objectsCh
+				// end of bucket - close the objectsCh
 				isRemoveBucket = true
 				close(objectsCh)
 				objectsCh = nil
@@ -731,9 +743,7 @@ func (c *s3Client) Remove(isIncomplete bool, contentCh <-chan *clientContent) <-
 				errorCh <- probe.NewError(err)
 			}
 		}
-
 	}()
-
 	return errorCh
 }
 
