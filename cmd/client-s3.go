@@ -1588,16 +1588,17 @@ func (c *s3Client) Remove(isIncomplete bool, contentCh <-chan *clientContent) <-
 						if err := c.api.RemoveBucket(prevBucket); err != nil {
 							errorCh <- probe.NewError(err)
 						}
-						fmt.Println(" ---- Init ccontentch, objectsch and nix isRemoveBucket for", bucket)
-						isRemoveBucket = false
-						cContentCh = make(chan *clientContent)
-						objectsCh = make(chan string)
-						if isIncomplete {
-							statusCh = c.removeIncompleteObjects(bucket, objectsCh)
-						} else {
-							statusCh = c.api.RemoveObjects(bucket, objectsCh)
-						}
 					}
+					fmt.Println(" ---- Init ccontentch, objectsch and nix isRemoveBucket for", bucket)
+					isRemoveBucket = false
+					cContentCh = make(chan *clientContent)
+					objectsCh = make(chan string)
+					if isIncomplete {
+						statusCh = c.removeIncompleteObjects(bucket, objectsCh)
+					} else {
+						statusCh = c.api.RemoveObjects(bucket, objectsCh)
+					}
+
 				}
 				prevBucket = bucket
 			}
