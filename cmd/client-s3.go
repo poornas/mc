@@ -1073,8 +1073,7 @@ func (c *s3Client) listIncompleteRecursiveInRoutine(contentCh chan *clientConten
 }
 
 // Convert objectMultipartInfo to clientContent
-func (c *s3Client) objectMultipartInfo2ClientContent(entry minio.ObjectMultipartInfo) clientContent {
-	bucket, _ := c.url2BucketAndObject()
+func (c *s3Client) objectMultipartInfo2ClientContent(bucket string, entry minio.ObjectMultipartInfo) clientContent {
 
 	content := clientContent{}
 	url := *c.targetURL
@@ -1116,7 +1115,7 @@ func (c *s3Client) listIncompleteRecursiveInRoutineDirOpt(contentCh chan *client
 				return true
 			}
 
-			content := c.objectMultipartInfo2ClientContent(entry)
+			content := c.objectMultipartInfo2ClientContent(bucket, entry)
 
 			// Handle if object.Key is a directory.
 			if strings.HasSuffix(entry.Key, string(c.targetURL.Separator)) {
@@ -1138,7 +1137,57 @@ func (c *s3Client) listIncompleteRecursiveInRoutineDirOpt(contentCh chan *client
 	}
 
 	bucket, object := c.url2BucketAndObject()
-	listDir(bucket, object)
+	var cContent *clientContent
+	var buckets []minio.BucketInfo
+	var allBuckets bool
+	// List all buckets if bucket and object are empty.
+	if bucket == "" && object == "" {
+		var err error
+		allBuckets = true
+		buckets, err = c.api.ListBuckets()
+		if err != nil {
+			contentCh <- &clientContent{URL: *c.targetURL, Err: probe.NewError(err)}
+		}
+	} else if object == "" {
+		// Get bucket stat if object is empty.
+		content := c.bucketStat()
+		cContent = &content
+		if content.Err != nil {
+			contentCh <- cContent
+			return
+		}
+		buckets = append(buckets, minio.BucketInfo{Name: bucket, CreationDate: content.Time})
+	} else if strings.HasSuffix(object, string(c.targetURL.Separator)) {
+		// Get stat of given object is a directory.
+		isIncomplete := true
+		content, perr := c.Stat(isIncomplete)
+		cContent = content
+		if perr != nil {
+			contentCh <- &clientContent{URL: *c.targetURL, Err: perr}
+			return
+		}
+		buckets = append(buckets, minio.BucketInfo{Name: bucket, CreationDate: content.Time})
+	}
+	for _, bucket := range buckets {
+		if allBuckets {
+			url := *c.targetURL
+			url.Path = c.joinPath(bucket.Name)
+			cContent = &clientContent{
+				URL:  url,
+				Time: bucket.CreationDate,
+				Type: os.ModeDir,
+			}
+		}
+		if cContent != nil && dirOpt == DirFirst {
+			contentCh <- cContent
+		}
+
+		listDir(bucket.Name, object)
+
+		if cContent != nil && dirOpt == DirLast {
+			contentCh <- cContent
+		}
+	}
 }
 
 // Returns new path by joining path segments with URL path separator.
