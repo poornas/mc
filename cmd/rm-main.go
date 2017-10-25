@@ -21,6 +21,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/fatih/color"
@@ -42,6 +44,10 @@ var (
 		cli.BoolFlag{
 			Name:  "force",
 			Usage: "Force a dangerous remove operation.",
+		},
+		cli.BoolFlag{
+			Name:  "dangerous",
+			Usage: "Force a full site remove operation.",
 		},
 		cli.BoolFlag{
 			Name:  "incomplete, I",
@@ -121,7 +127,14 @@ func checkRmSyntax(ctx *cli.Context) {
 	isForce := ctx.Bool("force")
 	isRecursive := ctx.Bool("recursive")
 	isStdin := ctx.Bool("stdin")
-
+	isDangerous := ctx.Bool("dangerous")
+	isNamespaceRemoval := false
+	for _, url := range ctx.Args() {
+		if !isAliasURLDir(url) && (strings.Count(url, string(filepath.Separator)) == 0) {
+			isNamespaceRemoval = true
+			break
+		}
+	}
 	if !ctx.Args().Present() && !isStdin {
 		exitCode := 1
 		cli.ShowCommandHelpAndExit(ctx, "rm", exitCode)
@@ -131,6 +144,10 @@ func checkRmSyntax(ctx *cli.Context) {
 	if (isRecursive || isStdin) && !isForce {
 		fatalIf(errDummy().Trace(),
 			"Removal requires --force option. This operation is *IRREVERSIBLE*. Please review carefully before performing this *DANGEROUS* operation.")
+	}
+	if (isRecursive || isStdin) && isNamespaceRemoval && !isDangerous {
+		fatalIf(errDummy().Trace(),
+			"Full site removal requires --dangerous option. This operation removes all the buckets on your namespace. Please review carefully before performing this *DESTRUCTIVE* operation.")
 	}
 }
 
