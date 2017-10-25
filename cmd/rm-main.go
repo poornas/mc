@@ -216,7 +216,6 @@ func removeRecursive(url string, isIncomplete bool, isFake bool, older int) erro
 	for content := range clnt.List(isRecursive, isIncomplete, DirLast) {
 		isEmpty = false
 		if content.Err == nil {
-			fmt.Println("content==", content)
 			//continue
 		}
 		if content.Err != nil {
@@ -245,13 +244,11 @@ func removeRecursive(url string, isIncomplete bool, isFake bool, older int) erro
 			Key:  targetAlias + urlString,
 			Size: content.Size,
 		})
-		fmt.Println("hekkoo")
 		if !isFake {
 			sent := false
 			for !sent {
 				select {
 				case contentCh <- content:
-					fmt.Println("kp:sending to contentch", content)
 					sent = true
 				case pErr := <-errorCh:
 					errorIf(pErr.Trace(urlString), "Failed to remove `"+urlString+"`.")
@@ -260,11 +257,9 @@ func removeRecursive(url string, isIncomplete bool, isFake bool, older int) erro
 						// Ignore Permission error.
 						continue
 					}
-					fmt.Println("kp:closing content cabbek", pErr)
 					close(contentCh)
 					return exitStatus(globalErrorExitStatus)
 				}
-				fmt.Println("kp:hanginh,,,contentCh", contentCh)
 			}
 		}
 	}

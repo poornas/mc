@@ -19,7 +19,6 @@ package cmd
 import (
 	"context"
 	"crypto/tls"
-	"fmt"
 	"hash/fnv"
 	"io"
 	"log"
@@ -1570,26 +1569,19 @@ func (c *s3Client) Remove(isIncomplete bool, contentCh <-chan *clientContent) <-
 				} else {
 					statusCh = c.api.RemoveObjects(bucket, objectsCh)
 				}
-				fmt.Println("----Init ccontentch,objectsch and statusch for ", bucket)
 			}
 
 			if prevBucket != bucket {
-				fmt.Println("-> prevBucket=", prevBucket, ":: current bucket==", bucket, ":going to close cContentch:: removeBucketflag=", isRemoveBucket)
 				close(cContentCh)
-				fmt.Println(" -> isrEMVOBucket==", isRemoveBucket, ":: objectname=", objectName)
 				if isRemoveBucket {
-					fmt.Println(" -->sanction remove bucket;; statusCh=", prevBucket, statusCh)
 					for removeStatus := range statusCh {
 						errorCh <- probe.NewError(removeStatus.Err)
 					}
 					if !isIncomplete {
-						fmt.Println("****** removing bucket *******", prevBucket)
-
 						if err := c.api.RemoveBucket(prevBucket); err != nil {
 							errorCh <- probe.NewError(err)
 						}
 					}
-					fmt.Println(" ---- Init ccontentch, objectsch and nix isRemoveBucket for", bucket)
 					isRemoveBucket = false
 					cContentCh = make(chan *clientContent)
 					objectsCh = make(chan string)
@@ -1603,39 +1595,27 @@ func (c *s3Client) Remove(isIncomplete bool, contentCh <-chan *clientContent) <-
 				prevBucket = bucket
 			}
 			if objectName != "" {
-				fmt.Println("... sending to objectsCh::", objectName)
 				objectsCh <- objectName
 			} else {
-				fmt.Println("closing objectsChannel & nil.... setRemoveBucket to true for ", prevBucket)
 				isRemoveBucket = true
 				close(objectsCh)
 				objectsCh = nil //seems hacky
 			}
-			fmt.Println("****  kpRemove:1.Rfetched:::", bucket, ":", objectName, objectsCh)
-
 		}
-		fmt.Println("^^^^^^^^^^^^^^^ outside for loop ccontentch=", cContentCh, " objectsch ==", objectsCh)
 		if cContentCh != nil {
-			fmt.Println("...closing cCONTentch...")
 			close(cContentCh)
 		}
 		if objectsCh != nil {
-			fmt.Println("...closing objectsCh...")
 			close(objectsCh)
 		}
 
-		fmt.Println("~~~~~~~~~~~looks like statusch hangs...", statusCh)
 		if statusCh != nil {
 			for removeStatus := range statusCh {
 				errorCh <- probe.NewError(removeStatus.Err)
 			}
 		}
 
-		fmt.Println("~~~~~~~~~~~isRemoveBucket===~~~~~~~~~~~", isRemoveBucket)
-
 		if isRemoveBucket && !isIncomplete {
-			fmt.Println("** removing#2 prev-bucket **", prevBucket)
-
 			if err := c.api.RemoveBucket(prevBucket); err != nil {
 				errorCh <- probe.NewError(err)
 			}
