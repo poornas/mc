@@ -511,7 +511,7 @@ func (c Client) executeMethod(ctx context.Context, method string, metadata reque
 
 	// Indicate to our routine to exit cleanly upon return.
 	defer close(doneCh)
-
+	retryTag := ">"
 	// Blank indentifier is kept here on purpose since 'range' without
 	// blank identifiers is only supported since go1.4
 	// https://golang.org/doc/go1.4#forrange.
@@ -527,13 +527,14 @@ func (c Client) executeMethod(ctx context.Context, method string, metadata reque
 				return nil, err
 			}
 		}
-
+		fmt.Println(retryTag)
 		// Instantiate a new request.
 		var req *http.Request
 		req, err = c.newRequest(method, metadata)
 		if err != nil {
 			errResponse := ToErrorResponse(err)
 			if isS3CodeRetryable(errResponse.Code) {
+				retryTag = fmt.Sprintf(">#1: %s", err)
 				continue // Retry.
 			}
 			return nil, err
@@ -546,6 +547,7 @@ func (c Client) executeMethod(ctx context.Context, method string, metadata reque
 		if err != nil {
 			// For supported network errors verify.
 			if isNetErrorRetryable(err) {
+				retryTag = fmt.Sprintf(">#2: %s", err)
 				continue // Retry.
 			}
 			// For other errors, return here no need to retry.
@@ -584,12 +586,16 @@ func (c Client) executeMethod(ctx context.Context, method string, metadata reque
 		//
 		// Additionally we should only retry if bucketLocation and custom
 		// region is empty.
+		fmt.Println(">region: ", metadata.bucketLocation, ":", c.region)
+
 		if metadata.bucketLocation == "" && c.region == "" {
 			if errResponse.Code == "AuthorizationHeaderMalformed" || errResponse.Code == "InvalidRegion" {
 				if metadata.bucketName != "" && errResponse.Region != "" {
 					// Gather Cached location only if bucketName is present.
 					if _, cachedLocationError := c.bucketLocCache.Get(metadata.bucketName); cachedLocationError != false {
 						c.bucketLocCache.Set(metadata.bucketName, errResponse.Region)
+						retryTag = fmt.Sprintf(">#3: %s", err)
+
 						continue // Retry.
 					}
 				}
@@ -598,15 +604,20 @@ func (c Client) executeMethod(ctx context.Context, method string, metadata reque
 
 		// Verify if error response code is retryable.
 		if isS3CodeRetryable(errResponse.Code) {
+			retryTag = fmt.Sprintf(">#4: %s", err)
+
 			continue // Retry.
 		}
 
 		// Verify if http status code is retryable.
 		if isHTTPStatusRetryable(res.StatusCode) {
+			retryTag = fmt.Sprintf(">#5: %s", err)
+
 			continue // Retry.
 		}
 
 		// For all other cases break out of the retry loop.
+		fmt.Println(">skip retry", err)
 		break
 	}
 	return res, err
