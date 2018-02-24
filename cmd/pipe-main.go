@@ -25,7 +25,12 @@ import (
 )
 
 var (
-	pipeFlags = []cli.Flag{}
+	pipeFlags = []cli.Flag{
+		cli.StringFlag{
+			Name:  "encrypt",
+			Usage: "Encrypt on server side",
+		},
+	}
 )
 
 // Display contents of a file.
@@ -44,6 +49,10 @@ USAGE:
 FLAGS:
   {{range .VisibleFlags}}{{.}}
   {{end}}
+
+ENVIRONMENT VARIABLES:
+   MC_ENCRYPT_KEY: Customer encryption key for object
+
 EXAMPLES:
    1. Write contents of stdin to a file on local filesystem.
       $ {{.HelpName}} /tmp/hello-world.go
@@ -56,10 +65,14 @@ EXAMPLES:
 
    4. Stream MySQL database dump to Amazon S3 directly.
       $ mysqldump -u root -p ******* accountsdb | {{.HelpName}} s3/ferenginar/backups/accountsdb-oct-9-2015.sql
+	
+   5. Stream an object to Amazon S3 cloud storage and encrypt on server.
+      $ {{.HelpName}} --encrypt '32byteslongsecretkeymustbegiven1' s3/ferenginar/klingon_opera_aktuh_maylotah.ogg
+
 `,
 }
 
-func pipe(targetURL string) *probe.Error {
+func pipe(targetURL, sseKey string) *probe.Error {
 	if targetURL == "" {
 		// When no target is specified, pipe cat's stdin to stdout.
 		return catOut(os.Stdin, -1).Trace()
@@ -68,7 +81,7 @@ func pipe(targetURL string) *probe.Error {
 	// Stream from stdin to multiple objects until EOF.
 	// Ignore size, since os.Stat() would not return proper size all the time
 	// for local filesystem for example /proc files.
-	_, err := putTargetStreamWithURL(targetURL, os.Stdin, -1)
+	_, err := putTargetStreamWithURL(targetURL, os.Stdin, -1, sseKey)
 	// TODO: See if this check is necessary.
 	switch e := err.ToGoError().(type) {
 	case *os.PathError:
@@ -94,12 +107,16 @@ func mainPipe(ctx *cli.Context) error {
 	checkPipeSyntax(ctx)
 
 	if len(ctx.Args()) == 0 {
-		err := pipe("")
+		err := pipe("", "")
 		fatalIf(err.Trace("stdout"), "Unable to write to one or more targets.")
 	} else {
 		// extract URLs.
 		URLs := ctx.Args()
-		err := pipe(URLs[0])
+		sseKey := ctx.String("encrypt")
+		if key := os.Getenv("MC_ENCRYPT_KEY"); key != "" {
+			sseKey = key
+		}
+		err := pipe(URLs[0], sseKey)
 		fatalIf(err.Trace(URLs[0]), "Unable to write to one or more targets.")
 	}
 

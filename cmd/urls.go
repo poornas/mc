@@ -26,6 +26,8 @@ type URLs struct {
 	TargetContent *clientContent
 	TotalCount    int64
 	TotalSize     int64
+	SrcSSEKey     string
+	TgtSSEKey     string
 	Error         *probe.Error `json:"-"`
 }
 
@@ -67,6 +69,9 @@ func (m URLs) isEmpty() bool {
 		if m.SourceContent.Size == 0 && m.TargetContent == nil && m.Error == nil {
 			return true
 		}
+	}
+	if m.SrcSSEKey != "" || m.TgtSSEKey != "" {
+		return false
 	}
 	return false
 }

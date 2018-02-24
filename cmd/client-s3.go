@@ -19,6 +19,7 @@ package cmd
 import (
 	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"hash/fnv"
 	"io"
 	"net"
@@ -500,9 +501,17 @@ func (c *s3Client) Watch(params watchParams) (*watchObject, *probe.Error) {
 }
 
 // Get - get object with metadata.
-func (c *s3Client) Get() (io.Reader, *probe.Error) {
+func (c *s3Client) Get(sseKey string) (io.Reader, *probe.Error) {
 	bucket, object := c.url2BucketAndObject()
-	reader, e := c.api.GetObject(bucket, object, minio.GetObjectOptions{})
+	var opts minio.GetObjectOptions
+	if sseKey != "" {
+		key := minio.NewSSEInfo([]byte(sseKey), "AES256")
+		for k, v := range key.GetSSEHeaders() {
+			opts.Set(k, v)
+		}
+	}
+
+	reader, e := c.api.GetObject(bucket, object, opts)
 	if e != nil {
 		errResponse := minio.ToErrorResponse(e)
 		if errResponse.Code == "NoSuchBucket" {
@@ -524,19 +533,25 @@ func (c *s3Client) Get() (io.Reader, *probe.Error) {
 }
 
 // Copy - copy object
-func (c *s3Client) Copy(source string, size int64, progress io.Reader) *probe.Error {
+func (c *s3Client) Copy(source string, size int64, progress io.Reader, srcSSEKey, tgtSSEKey string) *probe.Error {
 	dstBucket, dstObject := c.url2BucketAndObject()
 	if dstBucket == "" {
 		return probe.NewError(BucketNameEmpty{})
 	}
 
 	tokens := splitStr(source, string(c.targetURL.Separator), 3)
-
+	var srcKey, tgtKey minio.SSEInfo
+	if srcSSEKey != "" {
+		srcKey = minio.NewSSEInfo([]byte(srcSSEKey), "AES256")
+	}
+	if tgtSSEKey != "" {
+		tgtKey = minio.NewSSEInfo([]byte(tgtSSEKey), "AES256")
+	}
 	// Source object
-	src := minio.NewSourceInfo(tokens[1], tokens[2], nil)
+	src := minio.NewSourceInfo(tokens[1], tokens[2], &srcKey)
 
 	// Destination object
-	dst, e := minio.NewDestinationInfo(dstBucket, dstObject, nil, nil)
+	dst, e := minio.NewDestinationInfo(dstBucket, dstObject, &tgtKey, nil)
 	if e != nil {
 		return probe.NewError(e)
 	}
@@ -572,7 +587,7 @@ func (c *s3Client) Copy(source string, size int64, progress io.Reader) *probe.Er
 }
 
 // Put - upload an object with custom metadata.
-func (c *s3Client) Put(ctx context.Context, reader io.Reader, size int64, metadata map[string]string, progress io.Reader) (int64, *probe.Error) {
+func (c *s3Client) Put(ctx context.Context, reader io.Reader, size int64, metadata map[string]string, progress io.Reader, sseKey string) (int64, *probe.Error) {
 	bucket, object := c.url2BucketAndObject()
 	contentType, ok := metadata["Content-Type"]
 	if ok {
@@ -602,6 +617,11 @@ func (c *s3Client) Put(ctx context.Context, reader io.Reader, size int64, metada
 		delete(metadata, "Content-Language")
 	}
 
+	if sseKey != "" {
+		metadata["x-amz-server-side-encryption-customer-algorithm"] = "AES256"
+		metadata["x-amz-server-side-encryption-customer-key"] = base64.StdEncoding.EncodeToString([]byte(sseKey))
+		metadata["x-amz-server-side-encryption-customer-key-MD5"] = sumMD5Base64([]byte(sseKey))
+	}
 	if bucket == "" {
 		return 0, probe.NewError(BucketNameEmpty{})
 	}
@@ -848,7 +868,7 @@ func (c *s3Client) listObjectWrapper(bucket, object string, isRecursive bool, do
 }
 
 // Stat - send a 'HEAD' on a bucket or object to fetch its metadata.
-func (c *s3Client) Stat(isIncomplete, isFetchMeta bool) (*clientContent, *probe.Error) {
+func (c *s3Client) Stat(isIncomplete, isFetchMeta bool, sseKey string) (*clientContent, *probe.Error) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 	bucket, object := c.url2BucketAndObject()
@@ -904,7 +924,12 @@ func (c *s3Client) Stat(isIncomplete, isFetchMeta bool) (*clientContent, *probe.
 		}
 		return nil, probe.NewError(ObjectMissing{})
 	}
-
+	opts := minio.StatObjectOptions{}
+	if sseKey != "" {
+		opts.Set("x-amz-server-side-encryption-customer-algorithm", "AES256")
+		opts.Set("x-amz-server-side-encryption-customer-key", base64.StdEncoding.EncodeToString([]byte(sseKey)))
+		opts.Set("x-amz-server-side-encryption-customer-key-MD5", sumMD5Base64([]byte(sseKey)))
+	}
 	for objectStat := range c.listObjectWrapper(bucket, object, nonRecursive, nil) {
 		if objectStat.Err != nil {
 			return nil, probe.NewError(objectStat.Err)
@@ -918,7 +943,7 @@ func (c *s3Client) Stat(isIncomplete, isFetchMeta bool) (*clientContent, *probe.
 			objectMetadata.Metadata = map[string]string{}
 			objectMetadata.EncryptionHeaders = map[string]string{}
 			if isFetchMeta {
-				stat, err := c.getObjectStat(bucket, object)
+				stat, err := c.getObjectStat(bucket, object, opts)
 				if err != nil {
 					return nil, err
 				}
@@ -933,7 +958,7 @@ func (c *s3Client) Stat(isIncomplete, isFetchMeta bool) (*clientContent, *probe.
 			objectMetadata.Type = os.ModeDir
 
 			if isFetchMeta {
-				stat, err := c.getObjectStat(bucket, object)
+				stat, err := c.getObjectStat(bucket, object, opts)
 				if err != nil {
 					return nil, err
 				}
@@ -944,14 +969,14 @@ func (c *s3Client) Stat(isIncomplete, isFetchMeta bool) (*clientContent, *probe.
 			return objectMetadata, nil
 		}
 	}
-	return c.getObjectStat(bucket, object)
+	return c.getObjectStat(bucket, object, opts)
 }
 
 // getObjectStat returns the metadata of an object from a HEAD call.
-func (c *s3Client) getObjectStat(bucket, object string) (*clientContent, *probe.Error) {
+func (c *s3Client) getObjectStat(bucket, object string, opts minio.StatObjectOptions) (*clientContent, *probe.Error) {
 	objectMetadata := &clientContent{}
 
-	objectStat, e := c.api.StatObject(bucket, object, minio.StatObjectOptions{})
+	objectStat, e := c.api.StatObject(bucket, object, opts)
 	if e != nil {
 		errResponse := minio.ToErrorResponse(e)
 		if errResponse.Code == "AccessDenied" {
@@ -1331,7 +1356,7 @@ func (c *s3Client) listIncompleteRecursiveInRoutineDirOpt(contentCh chan *client
 	} else if strings.HasSuffix(object, string(c.targetURL.Separator)) {
 		// Get stat of given object is a directory.
 		isIncomplete := true
-		content, perr := c.Stat(isIncomplete, false)
+		content, perr := c.Stat(isIncomplete, false, "")
 		cContent = content
 		if perr != nil {
 			contentCh <- &clientContent{URL: *c.targetURL, Err: perr}
@@ -1485,7 +1510,7 @@ func (c *s3Client) listRecursiveInRoutineDirOpt(contentCh chan *clientContent, d
 		// Get stat of given object is a directory.
 		isIncomplete := false
 		isFetchMeta := false
-		content, perr := c.Stat(isIncomplete, isFetchMeta)
+		content, perr := c.Stat(isIncomplete, isFetchMeta, "")
 		cContent = content
 		if perr != nil {
 			contentCh <- &clientContent{URL: *c.targetURL, Err: perr}

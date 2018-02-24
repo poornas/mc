@@ -17,6 +17,7 @@
 package cmd
 
 import (
+	"os"
 	"strings"
 
 	"github.com/fatih/color"
@@ -30,6 +31,10 @@ var (
 		cli.BoolFlag{
 			Name:  "recursive, r",
 			Usage: "Stat recursively.",
+		},
+		cli.StringFlag{
+			Name:  "encrypt",
+			Usage: "Encryption key on server",
 		},
 	}
 )
@@ -49,7 +54,11 @@ USAGE:
 
 FLAGS:
   {{range .VisibleFlags}}{{.}}
-  {{end}}
+	{{end}}
+
+ENVIRONMENT VARIABLES:
+   MC_ENCRYPT_KEY: Customer encryption key for object
+
 EXAMPLES:
    1. Stat all contents of mybucket on Amazon S3 cloud storage.
       $ {{.HelpName}} s3/mybucket/
@@ -59,6 +68,10 @@ EXAMPLES:
 
    3. Stat files recursively on a local filesystem on Microsoft Windows.
       $ {{.HelpName}} --recursive C:\Users\Worf\
+   
+   4. Stat all contents of mybucket on Amazon S3 cloud storage.
+      $ {{.HelpName}} --encrypt '32byteslongsecretkeymustbegiven1' s3/mybucket/
+
 `,
 }
 
@@ -109,6 +122,10 @@ func mainStat(ctx *cli.Context) error {
 		args = []string{"."}
 	}
 
+	sseKey := ctx.String("encrypt")
+	if key := os.Getenv("MC_ENCRYPT_KEY"); key != "" {
+		sseKey = key
+	}
 	var cErr error
 	for _, targetURL := range args {
 		var clnt Client
@@ -116,7 +133,7 @@ func mainStat(ctx *cli.Context) error {
 		fatalIf(err.Trace(targetURL), "Unable to initialize target `"+targetURL+"`.")
 
 		targetAlias, _, _ := mustExpandAlias(targetURL)
-		return doStat(clnt, isRecursive, targetAlias, targetURL)
+		return doStat(clnt, isRecursive, targetAlias, targetURL, sseKey)
 	}
 	return cErr
 

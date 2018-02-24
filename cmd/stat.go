@@ -110,7 +110,7 @@ func parseStat(targetAlias string, c *clientContent) statMessage {
 }
 
 // doStat - list all entities inside a folder.
-func doStat(clnt Client, isRecursive bool, targetAlias, targetURL string) error {
+func doStat(clnt Client, isRecursive bool, targetAlias, targetURL, sseKey string) error {
 
 	prefixPath := clnt.GetURL().Path
 	separator := string(clnt.GetURL().Separator)
@@ -144,10 +144,11 @@ func doStat(clnt Client, isRecursive bool, targetAlias, targetURL string) error 
 			continue
 		}
 		url := targetAlias + getKey(content)
-		_, stat, err := url2StatWithMetadata(url, true)
+		_, stat, err := url2StatWithMetadata(url, true, sseKey)
 		if err != nil {
 			stat = content
 		}
+
 		// Convert any os specific delimiters to "/".
 		contentURL := filepath.ToSlash(stat.URL.Path)
 		prefixPath = filepath.ToSlash(prefixPath)

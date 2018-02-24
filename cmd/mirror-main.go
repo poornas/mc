@@ -78,6 +78,14 @@ var (
 			Name:  "newer-than",
 			Usage: "Select objects newer than N days",
 		},
+		cli.StringFlag{
+			Name:  "source-encrypt",
+			Usage: "server side encryption key for source object(s)",
+		},
+		cli.StringFlag{
+			Name:  "target-encrypt",
+			Usage: "server side encryption key for target object(s)",
+		},
 	}
 )
 
@@ -97,6 +105,10 @@ USAGE:
 FLAGS:
   {{range .VisibleFlags}}{{.}}
   {{end}}
+
+ENVIRONMENT VARIABLES:
+	MC_SOURCE_ENCRYPT_KEY: Customer encryption key for source object(s)
+	MC_TARGET_ENCRYPT_KEY: Customer encryption key for target object(s)
 
 EXAMPLES:
    1. Mirror a bucket recursively from Minio cloud storage to a bucket on Amazon S3 cloud storage.
@@ -132,6 +144,9 @@ EXAMPLES:
   10. Mirror a bucket older than 30 days from Amazon S3 bucket test to a local folder.
       $ {{.HelpName}} --older-than=30 s3/test ~/test
 
+  11. Mirror server encrypted objects from Minio cloud storage to a bucket on Amazon S3 cloud storage 
+      $ {{.HelpName}} --source-encrypt '32byteslongsecretkeymustbegiven1' --target-encrypt '32byteslongsecretkeymustbegiven2' minio/photos/ s3/archive
+	
 `,
 }
 
@@ -170,8 +185,8 @@ type mirrorJob struct {
 
 	isFake, isRemove, isOverwrite, isWatch bool
 	olderThan, newerThan                   int
-
-	excludeOptions []string
+	srcSSEKey, tgtSSEKey                   string
+	excludeOptions                         []string
 }
 
 // mirrorMessage container for file mirror messages
@@ -217,7 +232,6 @@ func (mj *mirrorJob) doRemove(sURLs URLs) URLs {
 
 // doMirror - Mirror an object to multiple destination. URLs status contains a copy of sURLs and error if any.
 func (mj *mirrorJob) doMirror(ctx context.Context, cancelMirror context.CancelFunc, sURLs URLs) URLs {
-
 	if sURLs.Error != nil { // Erroneous sURLs passed.
 		return sURLs.WithError(sURLs.Error.Trace())
 	}
@@ -331,7 +345,6 @@ func (mj *mirrorJob) watchMirror(ctx context.Context, cancelMirror context.Cance
 			// newClient needs the unexpanded  path, newCLientURL needs the expanded path
 			targetAlias, expandedTargetPath, _ := mustExpandAlias(targetPath)
 			targetURL := newClientURL(expandedTargetPath)
-
 			if event.Type == EventCreate {
 				// we are checking if a destination file exists now, and if we only
 				// overwrite it when force is enabled.
@@ -340,6 +353,8 @@ func (mj *mirrorJob) watchMirror(ctx context.Context, cancelMirror context.Cance
 					SourceContent: &clientContent{URL: *sourceURL},
 					TargetAlias:   targetAlias,
 					TargetContent: &clientContent{URL: *targetURL},
+					SrcSSEKey:     mj.srcSSEKey,
+					TgtSSEKey:     mj.tgtSSEKey,
 				}
 				if event.Size == 0 {
 					sourceClient, err := newClient(aliasedPath)
@@ -348,7 +363,7 @@ func (mj *mirrorJob) watchMirror(ctx context.Context, cancelMirror context.Cance
 						mj.statusCh <- mirrorURL.WithError(err)
 						continue
 					}
-					sourceContent, err := sourceClient.Stat(false, false)
+					sourceContent, err := sourceClient.Stat(false, false, mj.srcSSEKey)
 					if err != nil {
 						// source doesn't exist anymore
 						mj.statusCh <- mirrorURL.WithError(err)
@@ -362,7 +377,7 @@ func (mj *mirrorJob) watchMirror(ctx context.Context, cancelMirror context.Cance
 					}
 					shouldQueue := false
 					if !mj.isOverwrite {
-						_, err = targetClient.Stat(false, false)
+						_, err = targetClient.Stat(false, false, mj.tgtSSEKey)
 						if err == nil {
 							continue
 						} // doesn't exist
@@ -371,6 +386,8 @@ func (mj *mirrorJob) watchMirror(ctx context.Context, cancelMirror context.Cance
 					if shouldQueue || mj.isOverwrite {
 						mirrorURL.TotalCount = mj.TotalObjects
 						mirrorURL.TotalSize = mj.TotalBytes
+						mirrorURL.SrcSSEKey = mj.srcSSEKey
+						mirrorURL.TgtSSEKey = mj.tgtSSEKey
 						// adjust total, because we want to show progress of the item still queued to be copied.
 						mj.status.SetTotal(mj.status.Total() + sourceContent.Size).Update()
 						mj.statusCh <- mj.doMirror(ctx, cancelMirror, mirrorURL)
@@ -385,7 +402,7 @@ func (mj *mirrorJob) watchMirror(ctx context.Context, cancelMirror context.Cance
 						mj.statusCh <- mirrorURL.WithError(err)
 						return
 					}
-					_, err = targetClient.Stat(false, false)
+					_, err = targetClient.Stat(false, false, mj.tgtSSEKey)
 					if err == nil {
 						continue
 					} // doesn't exist
@@ -395,6 +412,8 @@ func (mj *mirrorJob) watchMirror(ctx context.Context, cancelMirror context.Cance
 					mirrorURL.SourceContent.Size = event.Size
 					mirrorURL.TotalCount = mj.TotalObjects
 					mirrorURL.TotalSize = mj.TotalBytes
+					mirrorURL.SrcSSEKey = mj.srcSSEKey
+					mirrorURL.TgtSSEKey = mj.tgtSSEKey
 					// adjust total, because we want to show progress of the itemj stiil queued to be copied.
 					mj.status.SetTotal(mj.status.Total() + event.Size).Update()
 					mj.statusCh <- mj.doMirror(ctx, cancelMirror, mirrorURL)
@@ -405,6 +424,8 @@ func (mj *mirrorJob) watchMirror(ctx context.Context, cancelMirror context.Cance
 					SourceContent: nil,
 					TargetAlias:   targetAlias,
 					TargetContent: &clientContent{URL: *targetURL},
+					SrcSSEKey:     mj.srcSSEKey,
+					TgtSSEKey:     mj.tgtSSEKey,
 				}
 				mirrorURL.TotalCount = mj.TotalObjects
 				mirrorURL.TotalSize = mj.TotalBytes
@@ -448,7 +469,7 @@ func (mj *mirrorJob) startMirror(ctx context.Context, cancelMirror context.Cance
 
 	parallel, queueCh := newParallelManager(mj.statusCh, mj.status)
 
-	URLsCh := prepareMirrorURLs(mj.sourceURL, mj.targetURL, mj.isFake, mj.isOverwrite, mj.isRemove, mj.excludeOptions)
+	URLsCh := prepareMirrorURLs(mj.sourceURL, mj.targetURL, mj.isFake, mj.isOverwrite, mj.isRemove, mj.excludeOptions, mj.srcSSEKey, mj.tgtSSEKey)
 
 	for {
 		select {
@@ -553,7 +574,7 @@ func (mj *mirrorJob) mirror(ctx context.Context, cancelMirror context.CancelFunc
 	}
 }
 
-func newMirrorJob(srcURL, dstURL string, isFake, isRemove, isOverwrite, isWatch bool, excludeOptions []string, olderThan, newerThan int) *mirrorJob {
+func newMirrorJob(srcURL, dstURL string, isFake, isRemove, isOverwrite, isWatch bool, excludeOptions []string, olderThan, newerThan int, srcSSEKey, tgtSSEKey string) *mirrorJob {
 	// we'll define the status to use here,
 	// do we want the quiet status? or the progressbar
 	var status = NewProgressStatus()
@@ -577,6 +598,8 @@ func newMirrorJob(srcURL, dstURL string, isFake, isRemove, isOverwrite, isWatch 
 		excludeOptions: excludeOptions,
 		olderThan:      olderThan,
 		newerThan:      newerThan,
+		srcSSEKey:      srcSSEKey,
+		tgtSSEKey:      tgtSSEKey,
 
 		status:   status,
 		statusCh: make(chan URLs),
@@ -620,7 +643,14 @@ func runMirror(srcURL, dstURL string, ctx *cli.Context) *probe.Error {
 	if !isOverwrite {
 		isOverwrite = ctx.Bool("overwrite")
 	}
-
+	srcSSEKey := ctx.String("source-encrypt")
+	if key := os.Getenv("MC_SOURCE_ENCRYPT_KEY"); key != "" {
+		srcSSEKey = key
+	}
+	tgtSSEKey := ctx.String("target-encrypt")
+	if key := os.Getenv("MC_TARGET_ENCRYPT_KEY"); key != "" {
+		tgtSSEKey = key
+	}
 	// Create a new mirror job and execute it
 	mj := newMirrorJob(srcURL, dstURL,
 		ctx.Bool("fake"),
@@ -629,7 +659,9 @@ func runMirror(srcURL, dstURL string, ctx *cli.Context) *probe.Error {
 		ctx.Bool("watch"),
 		ctx.StringSlice("exclude"),
 		ctx.Int("older-than"),
-		ctx.Int("newer-than"))
+		ctx.Int("newer-than"),
+		srcSSEKey,
+		tgtSSEKey)
 
 	srcClt, err := newClient(srcURL)
 	fatalIf(err, "Unable to initialize `"+srcURL+"`")

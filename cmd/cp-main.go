@@ -49,6 +49,14 @@ var (
 			Name:  "newer-than",
 			Usage: "Copy objects newer than N days",
 		},
+		cli.StringFlag{
+			Name:  "source-encrypt",
+			Usage: "server side encryption key for source object(s)",
+		},
+		cli.StringFlag{
+			Name:  "target-encrypt",
+			Usage: "server side encryption key for target object(s)",
+		},
 	}
 )
 
@@ -68,6 +76,10 @@ USAGE:
 FLAGS:
   {{range .VisibleFlags}}{{.}}
   {{end}}
+
+ENVIRONMENT VARIABLES:
+	MC_SOURCE_ENCRYPT_KEY: Server side encryption key for source object(s)
+	MC_TARGET_ENCRYPT_KEY: Server side encryption key for target object(s)
 
 EXAMPLES:
    1. Copy a list of objects from local file system to Amazon S3 cloud storage.
@@ -93,6 +105,12 @@ EXAMPLES:
 
    8. Copy a local folder with space separated characters to Amazon S3 cloud storage.
       $ {{.HelpName}} --recursive 'workdir/documents/May 2014/' s3/miniocloud
+
+   9. Copy a local folder recursively to Amazon S3 cloud storage with server side encryption.
+      $ {{.HelpName}} --recursive --target-encrypt '32byteslongsecretkeymustbegiven1 'backup/documents/' s3/backup
+	
+  10. Copy a folder recursively from Amazon S3 cloud storage with server side encryption to Minio cloud storage with server side encryption.
+      $ {{.HelpName}} --recursive --source-encrypt '32byteslongsecretkeymustbegiven1' --target-encrypt '32byteslongsecretkeymustbegiven2' 's3/documents/' myminio/documents/
 
 `,
 }
@@ -166,7 +184,6 @@ func doCopy(ctx context.Context, cpURLs URLs, pg ProgressReader) URLs {
 	targetAlias := cpURLs.TargetAlias
 	targetURL := cpURLs.TargetContent.URL
 	length := cpURLs.SourceContent.Size
-
 	if progressReader, ok := pg.(*progressBar); ok {
 		progressReader.SetCaption(cpURLs.SourceContent.URL.String() + ": ")
 	} else {
@@ -206,7 +223,8 @@ func doPrepareCopyURLs(session *sessionV8, trapCh <-chan bool, cancelCopy contex
 
 	olderThan := session.Header.CommandIntFlags["older-than"]
 	newerThan := session.Header.CommandIntFlags["newer-than"]
-
+	srcSSEKey := session.Header.CommandStringFlags["source-encrypt"]
+	tgtSSEKey := session.Header.CommandStringFlags["target-encrypt"]
 	// Create a session data file to store the processed URLs.
 	dataFP := session.NewDataWriter()
 
@@ -215,7 +233,7 @@ func doPrepareCopyURLs(session *sessionV8, trapCh <-chan bool, cancelCopy contex
 		scanBar = scanBarFactory()
 	}
 
-	URLsCh := prepareCopyURLs(sourceURLs, targetURL, isRecursive)
+	URLsCh := prepareCopyURLs(sourceURLs, targetURL, isRecursive, srcSSEKey, tgtSSEKey)
 	done := false
 	for !done {
 		select {
@@ -317,6 +335,9 @@ func doCopySession(session *sessionV8) error {
 			// Save totalSize.
 			cpURLs.TotalSize = session.Header.TotalBytes
 
+			cpURLs.SrcSSEKey = session.Header.CommandStringFlags["source-encrypt"]
+			cpURLs.TgtSSEKey = session.Header.CommandStringFlags["target-encrypt"]
+
 			// Verify if previously copied, notify progress bar.
 			if isCopied(cpURLs.SourceContent.URL.String()) {
 				queueCh <- func() URLs {
@@ -401,19 +422,27 @@ func mainCopy(ctx *cli.Context) error {
 	// check 'copy' cli arguments.
 	checkCopySyntax(ctx)
 
-	// Additional command speific theme customization.
+	// Additional command specific theme customization.
 	console.SetColor("Copy", color.New(color.FgGreen, color.Bold))
 
 	recursive := ctx.Bool("recursive")
 	olderThan := ctx.Int("older-than")
 	newerThan := ctx.Int("newer-than")
-
+	srcSSEKey := ctx.String("source-encrypt")
+	if key := os.Getenv("MC_SOURCE_ENCRYPT_KEY"); key != "" {
+		srcSSEKey = key
+	}
+	tgtSSEKey := ctx.String("target-encrypt")
+	if key := os.Getenv("MC_TARGET_ENCRYPT_KEY"); key != "" {
+		tgtSSEKey = key
+	}
 	session := newSessionV8()
 	session.Header.CommandType = "cp"
 	session.Header.CommandBoolFlags["recursive"] = recursive
 	session.Header.CommandIntFlags["older-than"] = olderThan
 	session.Header.CommandIntFlags["newer-than"] = newerThan
-
+	session.Header.CommandStringFlags["source-encrypt"] = srcSSEKey
+	session.Header.CommandStringFlags["target-encrypt"] = tgtSSEKey
 	var e error
 	if session.Header.RootPath, e = os.Getwd(); e != nil {
 		session.Delete()

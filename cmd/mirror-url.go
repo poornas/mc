@@ -82,7 +82,7 @@ func matchExcludeOptions(excludeOptions []string, srcSuffix string) bool {
 	return false
 }
 
-func deltaSourceTarget(sourceURL, targetURL string, isFake, isOverwrite, isRemove bool, excludeOptions []string, URLsCh chan<- URLs) {
+func deltaSourceTarget(sourceURL, targetURL string, isFake, isOverwrite, isRemove bool, excludeOptions []string, URLsCh chan<- URLs, srcSSEKey, tgtSSEKey string) {
 	// source and targets are always directories
 	sourceSeparator := string(newClientURL(sourceURL).Separator)
 	if !strings.HasSuffix(sourceURL, sourceSeparator) {
@@ -152,6 +152,8 @@ func deltaSourceTarget(sourceURL, targetURL string, isFake, isOverwrite, isRemov
 				SourceContent: sourceContent,
 				TargetAlias:   targetAlias,
 				TargetContent: targetContent,
+				SrcSSEKey:     srcSSEKey,
+				TgtSSEKey:     tgtSSEKey,
 			}
 		case differInFirst:
 			// Only in first, always copy.
@@ -164,6 +166,8 @@ func deltaSourceTarget(sourceURL, targetURL string, isFake, isOverwrite, isRemov
 				SourceContent: sourceContent,
 				TargetAlias:   targetAlias,
 				TargetContent: targetContent,
+				SrcSSEKey:     srcSSEKey,
+				TgtSSEKey:     tgtSSEKey,
 			}
 		case differInSecond:
 			if !isRemove && !isFake {
@@ -176,6 +180,7 @@ func deltaSourceTarget(sourceURL, targetURL string, isFake, isOverwrite, isRemov
 			URLsCh <- URLs{
 				TargetAlias:   targetAlias,
 				TargetContent: diffMsg.secondContent,
+				TgtSSEKey:     tgtSSEKey,
 			}
 		default:
 			URLsCh <- URLs{
@@ -186,8 +191,8 @@ func deltaSourceTarget(sourceURL, targetURL string, isFake, isOverwrite, isRemov
 }
 
 // Prepares urls that need to be copied or removed based on requested options.
-func prepareMirrorURLs(sourceURL string, targetURL string, isFake, isOverwrite, isRemove bool, excludeOptions []string) <-chan URLs {
+func prepareMirrorURLs(sourceURL string, targetURL string, isFake, isOverwrite, isRemove bool, excludeOptions []string, srcSSEKey, tgtSSEKey string) <-chan URLs {
 	URLsCh := make(chan URLs)
-	go deltaSourceTarget(sourceURL, targetURL, isFake, isOverwrite, isRemove, excludeOptions, URLsCh)
+	go deltaSourceTarget(sourceURL, targetURL, isFake, isOverwrite, isRemove, excludeOptions, URLsCh, srcSSEKey, tgtSSEKey)
 	return URLsCh
 }
