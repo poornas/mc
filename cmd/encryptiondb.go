@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"sort"
 	"strings"
 
 	"github.com/minio/mc/pkg/probe"
@@ -12,15 +13,6 @@ import (
 
 // encryption keys db
 type encryptionKeysDB struct {
-}
-
-// Match function matches wild cards in 'pattern' for resource.
-func resourceMatch(pattern, resource string) bool {
-	if runtime.GOOS == "windows" {
-		// For windows specifically make sure we are case insensitive.
-		return wildcard.Match(strings.ToLower(pattern), strings.ToLower(resource))
-	}
-	return wildcard.Match(pattern, resource)
 }
 
 /*
@@ -78,17 +70,51 @@ func parseEncryptionKeys(ssekeys string) (encMap map[string][]prefixSSEPair, err
 		}
 		alias, path := url2Alias(pair[0])
 		if len(pair[1]) != 32 {
-			return nil, probe.NewError(errors.New("sse-c key should be "))
-
+			return nil, probe.NewError(errors.New("sse-c key should be 32 bytes long"))
 		}
-		fmt.Println("extracted alias and path===>", alias, path)
+		prefix := strings.TrimSpace(pair[0])
+		fmt.Println("extracted alias and path===>", alias, path, "|", prefix, "|")
 		if _, ok := encMap[alias]; !ok {
-			encMap[alias] = make([]prefixSSEPair, 1)
+			encMap[alias] = make([]prefixSSEPair, 0)
 		}
-		ps := prefixSSEPair{prefix: path, sseKey: pair[1]}
+		ps := prefixSSEPair{prefix: prefix, sseKey: pair[1]}
 		encMap[alias] = append(encMap[alias], ps)
 	}
 	fmt.Println("------- parse end.....")
-
+	// sort encryption keys in descending order of prefix length
+	for _, encKeys := range encMap {
+		sort.Sort(byPrefixLength(encKeys))
+	}
 	return
+}
+
+// byPrefixLength implements sort.Interface.
+type byPrefixLength []prefixSSEPair
+
+func (p byPrefixLength) Len() int { return len(p) }
+func (p byPrefixLength) Less(i, j int) bool {
+	return len(p[i].prefix) > len(p[j].prefix)
+}
+func (p byPrefixLength) Swap(i, j int) { p[i], p[j] = p[j], p[i] }
+
+// get SSE Key if object prefix matches with given resource.
+func getSSEKey(resource string, encKeys []prefixSSEPair) string {
+	fmt.Println("encKeys received==>", encKeys)
+	fmt.Println("sorted encKeys ==>", encKeys, "resource-=->|", resource, "| enckye length=>", len(encKeys))
+	for _, k := range encKeys {
+		fmt.Println("k===prefix|", k.prefix, "|")
+		if prefixMatch(k.prefix, resource) {
+			fmt.Println("HUrrah matched,....", k.prefix, " for :", resource)
+			return k.sseKey
+		}
+	}
+	return ""
+}
+func prefixMatch(pattern, resource string) bool {
+	fmt.Println("patrn=>|", pattern, "|resource=>|", resource, "| match???", wildcard.Match(pattern, resource))
+	if runtime.GOOS == "windows" {
+		// For windows specifically make sure we are case insensitive.
+		return wildcard.Match(strings.ToLower(pattern), strings.ToLower(resource))
+	}
+	return wildcard.Match(pattern, resource)
 }

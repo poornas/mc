@@ -139,7 +139,7 @@ func checkCatSyntax(ctx *cli.Context) {
 }
 
 // catURL displays contents of a URL to stdout.
-func catURL(sourceURL string) *probe.Error {
+func catURL(sourceURL string, encKeydb map[string][]prefixSSEPair) *probe.Error {
 	var reader io.Reader
 	size := int64(-1)
 	switch sourceURL {
@@ -156,7 +156,7 @@ func catURL(sourceURL string) *probe.Error {
 		if err == nil && client.GetURL().Type == objectStorage {
 			size = content.Size
 		}
-		if reader, err = getSourceStreamFromURL(sourceURL); err != nil {
+		if reader, err = getSourceStreamFromURL(sourceURL, encKeydb); err != nil {
 			return err.Trace(sourceURL)
 		}
 	}
@@ -243,12 +243,12 @@ func mainCat(ctx *cli.Context) error {
 	}
 	fmt.Println("cat sseKey==>", sseKey)
 
-	sseKeys, err := parseEncryptionKeys(sseKey)
-	fmt.Println("sseKeys ===>", sseKeys, "err =>", err)
+	encKeydb, err := parseEncryptionKeys(sseKey)
+	fmt.Println("sseKeys ===>", encKeydb, "err =>", err)
 	fatalIf(err, "Unable to parse encryption keys")
 	// Convert arguments to URLs: expand alias, fix format.
 	for _, url := range args {
-		fatalIf(catURL(url).Trace(url), "Unable to read from `"+url+"`.")
+		fatalIf(catURL(url, encKeydb).Trace(url), "Unable to read from `"+url+"`.")
 	}
 	return nil
 }

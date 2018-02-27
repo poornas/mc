@@ -18,6 +18,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"path/filepath"
 	"regexp"
@@ -67,22 +68,27 @@ func isAliasURLDir(aliasURL string) bool {
 }
 
 // getSourceStreamFromURL gets a reader from URL.
-func getSourceStreamFromURL(urlStr string) (reader io.Reader, err *probe.Error) {
+func getSourceStreamFromURL(urlStr string, encKeydb map[string][]prefixSSEPair) (reader io.Reader, err *probe.Error) {
 	alias, urlStrFull, _, err := expandAlias(urlStr)
 	if err != nil {
 		return nil, err.Trace(urlStr)
 	}
-	reader, _, err = getSourceStream(alias, urlStrFull, false)
+	fmt.Println("==========================")
+	fmt.Println("urlstr=-=>", urlStr)
+	sseKey := getSSEKey(urlStr, encKeydb[alias])
+
+	reader, _, err = getSourceStream(alias, urlStrFull, false, sseKey)
 	return reader, err
 }
 
 // getSourceStream gets a reader from URL.
-func getSourceStream(alias string, urlStr string, fetchStat bool) (reader io.Reader, metadata map[string]string, err *probe.Error) {
+func getSourceStream(alias string, urlStr string, fetchStat bool, sseKey string) (reader io.Reader, metadata map[string]string, err *probe.Error) {
 	sourceClnt, err := newClientFromAlias(alias, urlStr)
 	if err != nil {
 		return nil, nil, err.Trace(alias, urlStr)
 	}
-	sseKey := "kptodo"
+
+	//sseKey := "kptodo"
 	reader, err = sourceClnt.Get(sseKey)
 	if err != nil {
 		return nil, nil, err.Trace(alias, urlStr)
@@ -164,8 +170,9 @@ func uploadSourceToTargetURL(ctx context.Context, urls URLs, progress io.Reader)
 			return urls.WithError(err.Trace(sourceURL.String()))
 		}
 	} else {
+		sseKey := "kptodo"
 		// Proceed with regular stream copy.
-		reader, metadata, err := getSourceStream(sourceAlias, sourceURL.String(), true)
+		reader, metadata, err := getSourceStream(sourceAlias, sourceURL.String(), true, sseKey)
 		if err != nil {
 			return urls.WithError(err.Trace(sourceURL.String()))
 		}
