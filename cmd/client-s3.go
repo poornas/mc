@@ -511,7 +511,7 @@ func (c *s3Client) Watch(params watchParams) (*watchObject, *probe.Error) {
 func (c *s3Client) Get(sseKey string) (io.Reader, *probe.Error) {
 	bucket, object := c.url2BucketAndObject()
 	var opts minio.GetObjectOptions
-	if sseKey != "" {
+	if sseKey != "" && sseKey != "kptodo" {
 		fmt.Println("S3-Get received key:::", sseKey)
 		key := minio.NewSSEInfo([]byte(sseKey), "AES256")
 		for k, v := range key.GetSSEHeaders() {
@@ -549,6 +549,7 @@ func (c *s3Client) Copy(source string, size int64, progress io.Reader, srcSSEKey
 	tokens := splitStr(source, string(c.targetURL.Separator), 3)
 	var srcKey, tgtKey minio.SSEInfo
 	if srcSSEKey != "" {
+		fmt.Println("copy received key::::", srcSSEKey, tgtSSEKey)
 		srcKey = minio.NewSSEInfo([]byte(srcSSEKey), "AES256")
 	}
 	if tgtSSEKey != "" {
@@ -623,7 +624,8 @@ func (c *s3Client) Put(ctx context.Context, reader io.Reader, size int64, metada
 	if ok {
 		delete(metadata, "Content-Language")
 	}
-	if sseKey != "" {
+	if sseKey != "" && sseKey != "kptodo" {
+		fmt.Println("s3-PUT received ssekey>>", sseKey)
 		metadata["x-amz-server-side-encryption-customer-algorithm"] = "AES256"
 		metadata["x-amz-server-side-encryption-customer-key"] = base64.StdEncoding.EncodeToString([]byte(sseKey))
 		metadata["x-amz-server-side-encryption-customer-key-MD5"] = sumMD5Base64([]byte(sseKey))
@@ -931,9 +933,10 @@ func (c *s3Client) Stat(isIncomplete, isFetchMeta bool, sseKey string) (*clientC
 		return nil, probe.NewError(ObjectMissing{})
 	}
 	opts := minio.StatObjectOptions{}
-	fmt.Println("STAT used ssec keys::::::", sseKey)
+	fmt.Println("s3-STAT used ssec keys::::::", sseKey)
 
 	if sseKey != "" {
+		fmt.Println("s3-stat used ssekey:", sseKey)
 		opts.Set("x-amz-server-side-encryption-customer-algorithm", "AES256")
 		opts.Set("x-amz-server-side-encryption-customer-key", base64.StdEncoding.EncodeToString([]byte(sseKey)))
 		opts.Set("x-amz-server-side-encryption-customer-key-MD5", sumMD5Base64([]byte(sseKey)))

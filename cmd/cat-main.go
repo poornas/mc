@@ -34,7 +34,12 @@ import (
 )
 
 var (
-	catFlags = []cli.Flag{}
+	catFlags = []cli.Flag{
+		cli.StringFlag{
+			Name:  "encrypt-key",
+			Usage: "Encrypt on server side",
+		},
+	}
 )
 
 // Display contents of a file.
@@ -53,6 +58,9 @@ USAGE:
 FLAGS:
   {{range .VisibleFlags}}{{.}}
   {{end}}
+
+ENVIRONMENT VARIABLES:
+	MC_ENCRYPT_KEY: Server side encryption key for object
 EXAMPLES:
    1. Stream an object from Amazon S3 cloud storage to mplayer standard input.
       $ {{.HelpName}} s3/ferenginar/klingon_opera_aktuh_maylotah.ogg | mplayer -
@@ -62,7 +70,9 @@ EXAMPLES:
 
    3. Concatenate multiple files to one.
       $ {{.HelpName}} part.* > complete.img
-
+   
+   4. Stream a server encrypted object from Amazon S3 cloud storage to standard output.
+      $ {{.HelpName}} --encrypt-key 's3/ferenginar=customerspecifiedencryptky32bits' s3/ferenginar/klingon_opera_aktuh_maylotah.ogg
 `,
 }
 
@@ -227,7 +237,15 @@ func mainCat(ctx *cli.Context) error {
 			}
 		}
 	}
+	sseKey := os.Getenv("MC_ENCRYPT_KEY")
+	if key := ctx.String("encrypt-key"); key != "" {
+		sseKey = key
+	}
+	fmt.Println("cat sseKey==>", sseKey)
 
+	sseKeys, err := parseEncryptionKeys(sseKey)
+	fmt.Println("sseKeys ===>", sseKeys, "err =>", err)
+	fatalIf(err, "Unable to parse encryption keys")
 	// Convert arguments to URLs: expand alias, fix format.
 	for _, url := range args {
 		fatalIf(catURL(url).Trace(url), "Unable to read from `"+url+"`.")
