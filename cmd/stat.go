@@ -110,7 +110,7 @@ func parseStat(targetAlias string, c *clientContent) statMessage {
 }
 
 // doStat - list all entities inside a folder.
-func doStat(clnt Client, isRecursive bool, targetAlias, targetURL, sseKey string) error {
+func doStat(clnt Client, isRecursive bool, targetAlias, targetURL, sseKeys string) error {
 
 	prefixPath := clnt.GetURL().Path
 	separator := string(clnt.GetURL().Separator)
@@ -144,7 +144,12 @@ func doStat(clnt Client, isRecursive bool, targetAlias, targetURL, sseKey string
 			continue
 		}
 		url := targetAlias + getKey(content)
-		_, stat, err := url2StatWithMetadata(url, true, sseKey)
+		fmt.Println("#9")
+
+		sseKeyMap, perr := getSSEKeyMap(targetAlias, sseKeys)
+		errorIf(perr, "Unable to parse sse-c encryption keys")
+
+		_, stat, err := url2StatWithMetadata(url, true, sseKeyMap)
 		if err != nil {
 			stat = content
 		}

@@ -77,11 +77,15 @@ func pipe(targetURL, sseKey string) *probe.Error {
 		// When no target is specified, pipe cat's stdin to stdout.
 		return catOut(os.Stdin, -1).Trace()
 	}
-
+	alias, _, _ := mustExpandAlias(targetURL)
+	sseKeyMap, err := getSSEKeyMap(alias, sseKey)
+	if err != nil {
+		return err.Trace(targetURL)
+	}
 	// Stream from stdin to multiple objects until EOF.
 	// Ignore size, since os.Stat() would not return proper size all the time
 	// for local filesystem for example /proc files.
-	_, err := putTargetStreamWithURL(targetURL, os.Stdin, -1, sseKey)
+	_, err = putTargetStreamWithURL(targetURL, os.Stdin, -1, sseKeyMap)
 	// TODO: See if this check is necessary.
 	switch e := err.ToGoError().(type) {
 	case *os.PathError:

@@ -20,6 +20,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/base64"
+	"fmt"
 	"hash/fnv"
 	"io"
 	"net"
@@ -501,10 +502,14 @@ func (c *s3Client) Watch(params watchParams) (*watchObject, *probe.Error) {
 }
 
 // Get - get object with metadata.
-func (c *s3Client) Get(sseKey string) (io.Reader, *probe.Error) {
+func (c *s3Client) Get(sseKeys map[string]string) (io.Reader, *probe.Error) {
 	bucket, object := c.url2BucketAndObject()
 	var opts minio.GetObjectOptions
+	sseKey := getSSEKey(c.targetURL.Path, sseKeys)
+	fmt.Println("GET used ssec keys::::::", sseKey)
+
 	if sseKey != "" {
+		fmt.Println("S3-Get received key:::", sseKey)
 		key := minio.NewSSEInfo([]byte(sseKey), "AES256")
 		for k, v := range key.GetSSEHeaders() {
 			opts.Set(k, v)
@@ -533,13 +538,17 @@ func (c *s3Client) Get(sseKey string) (io.Reader, *probe.Error) {
 }
 
 // Copy - copy object
-func (c *s3Client) Copy(source string, size int64, progress io.Reader, srcSSEKey, tgtSSEKey string) *probe.Error {
+func (c *s3Client) Copy(source string, size int64, progress io.Reader, srcSSEKeys, tgtSSEKeys map[string]string) *probe.Error {
+
 	dstBucket, dstObject := c.url2BucketAndObject()
 	if dstBucket == "" {
 		return probe.NewError(BucketNameEmpty{})
 	}
 
 	tokens := splitStr(source, string(c.targetURL.Separator), 3)
+	srcSSEKey := getSSEKey(source, srcSSEKeys)
+	tgtSSEKey := getSSEKey(c.targetURL.Path, tgtSSEKeys)
+	fmt.Println("COPY used ssec keys::::::", srcSSEKey, tgtSSEKey)
 	var srcKey, tgtKey minio.SSEInfo
 	if srcSSEKey != "" {
 		srcKey = minio.NewSSEInfo([]byte(srcSSEKey), "AES256")
@@ -587,7 +596,7 @@ func (c *s3Client) Copy(source string, size int64, progress io.Reader, srcSSEKey
 }
 
 // Put - upload an object with custom metadata.
-func (c *s3Client) Put(ctx context.Context, reader io.Reader, size int64, metadata map[string]string, progress io.Reader, sseKey string) (int64, *probe.Error) {
+func (c *s3Client) Put(ctx context.Context, reader io.Reader, size int64, metadata map[string]string, progress io.Reader, sseKeys map[string]string) (int64, *probe.Error) {
 	bucket, object := c.url2BucketAndObject()
 	contentType, ok := metadata["Content-Type"]
 	if ok {
@@ -616,6 +625,8 @@ func (c *s3Client) Put(ctx context.Context, reader io.Reader, size int64, metada
 	if ok {
 		delete(metadata, "Content-Language")
 	}
+	sseKey := getSSEKey(c.targetURL.Path, sseKeys)
+	fmt.Println("PUT used ssec keys::::::", sseKey)
 
 	if sseKey != "" {
 		metadata["x-amz-server-side-encryption-customer-algorithm"] = "AES256"
@@ -868,7 +879,7 @@ func (c *s3Client) listObjectWrapper(bucket, object string, isRecursive bool, do
 }
 
 // Stat - send a 'HEAD' on a bucket or object to fetch its metadata.
-func (c *s3Client) Stat(isIncomplete, isFetchMeta bool, sseKey string) (*clientContent, *probe.Error) {
+func (c *s3Client) Stat(isIncomplete, isFetchMeta bool, sseKeyMap map[string]string) (*clientContent, *probe.Error) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 	bucket, object := c.url2BucketAndObject()
@@ -925,6 +936,9 @@ func (c *s3Client) Stat(isIncomplete, isFetchMeta bool, sseKey string) (*clientC
 		return nil, probe.NewError(ObjectMissing{})
 	}
 	opts := minio.StatObjectOptions{}
+	sseKey := getSSEKey(c.targetURL.Path, sseKeyMap)
+	fmt.Println("STAT used ssec keys::::::", sseKey)
+
 	if sseKey != "" {
 		opts.Set("x-amz-server-side-encryption-customer-algorithm", "AES256")
 		opts.Set("x-amz-server-side-encryption-customer-key", base64.StdEncoding.EncodeToString([]byte(sseKey)))
@@ -1356,7 +1370,7 @@ func (c *s3Client) listIncompleteRecursiveInRoutineDirOpt(contentCh chan *client
 	} else if strings.HasSuffix(object, string(c.targetURL.Separator)) {
 		// Get stat of given object is a directory.
 		isIncomplete := true
-		content, perr := c.Stat(isIncomplete, false, "")
+		content, perr := c.Stat(isIncomplete, false, nil)
 		cContent = content
 		if perr != nil {
 			contentCh <- &clientContent{URL: *c.targetURL, Err: perr}
@@ -1510,7 +1524,7 @@ func (c *s3Client) listRecursiveInRoutineDirOpt(contentCh chan *clientContent, d
 		// Get stat of given object is a directory.
 		isIncomplete := false
 		isFetchMeta := false
-		content, perr := c.Stat(isIncomplete, isFetchMeta, "")
+		content, perr := c.Stat(isIncomplete, isFetchMeta, nil)
 		cContent = content
 		if perr != nil {
 			contentCh <- &clientContent{URL: *c.targetURL, Err: perr}

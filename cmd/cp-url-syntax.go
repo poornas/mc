@@ -41,6 +41,7 @@ func checkCopySyntax(ctx *cli.Context) {
 	/****** Generic Invalid Rules *******/
 	// Verify if source(s) exists.
 	for _, srcURL := range srcURLs {
+		fmt.Println("srcURL==>", srcURL)
 		_, _, err := url2Stat(srcURL)
 		if err != nil {
 			console.Fatalf("Unable to validate source %s\n", srcURL)

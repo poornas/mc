@@ -18,6 +18,8 @@ package cmd
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"path/filepath"
 	"regexp"
@@ -72,23 +74,29 @@ func getSourceStreamFromURL(urlStr, sseKey string) (reader io.Reader, err *probe
 	if err != nil {
 		return nil, err.Trace(urlStr)
 	}
-	reader, _, err = getSourceStream(alias, urlStrFull, sseKey, false)
+	fmt.Println("#1")
+	sseKeyMap, err := getSSEKeyMap(alias, sseKey)
+	if err != nil {
+		return nil, err.Trace(alias, urlStr)
+	}
+	reader, _, err = getSourceStream(alias, urlStrFull, sseKeyMap, false)
 	return reader, err
 }
 
 // getSourceStream gets a reader from URL.
-func getSourceStream(alias string, urlStr string, sseKey string, fetchStat bool) (reader io.Reader, metadata map[string]string, err *probe.Error) {
+func getSourceStream(alias string, urlStr string, sseKeys map[string]string, fetchStat bool) (reader io.Reader, metadata map[string]string, err *probe.Error) {
 	sourceClnt, err := newClientFromAlias(alias, urlStr)
 	if err != nil {
 		return nil, nil, err.Trace(alias, urlStr)
 	}
-	reader, err = sourceClnt.Get(sseKey)
+
+	reader, err = sourceClnt.Get(sseKeys)
 	if err != nil {
 		return nil, nil, err.Trace(alias, urlStr)
 	}
 	metadata = map[string]string{}
 	if fetchStat {
-		st, err := sourceClnt.Stat(false, true, sseKey)
+		st, err := sourceClnt.Stat(false, true, sseKeys)
 
 		if err != nil {
 			return nil, nil, err.Trace(alias, urlStr)
@@ -104,12 +112,12 @@ func getSourceStream(alias string, urlStr string, sseKey string, fetchStat bool)
 }
 
 // putTargetStream writes to URL from Reader.
-func putTargetStream(ctx context.Context, alias string, urlStr string, reader io.Reader, size int64, metadata map[string]string, progress io.Reader, sseKey string) (int64, *probe.Error) {
+func putTargetStream(ctx context.Context, alias string, urlStr string, reader io.Reader, size int64, metadata map[string]string, progress io.Reader, sseKeyMap map[string]string) (int64, *probe.Error) {
 	targetClnt, err := newClientFromAlias(alias, urlStr)
 	if err != nil {
 		return 0, err.Trace(alias, urlStr)
 	}
-	n, err := targetClnt.Put(ctx, reader, size, metadata, progress, sseKey)
+	n, err := targetClnt.Put(ctx, reader, size, metadata, progress, sseKeyMap)
 	if err != nil {
 		return n, err.Trace(alias, urlStr)
 	}
@@ -117,7 +125,7 @@ func putTargetStream(ctx context.Context, alias string, urlStr string, reader io
 }
 
 // putTargetStreamWithURL writes to URL from reader. If length=-1, read until EOF.
-func putTargetStreamWithURL(urlStr string, reader io.Reader, size int64, sseKey string) (int64, *probe.Error) {
+func putTargetStreamWithURL(urlStr string, reader io.Reader, size int64, sseKeyMap map[string]string) (int64, *probe.Error) {
 	alias, urlStrFull, _, err := expandAlias(urlStr)
 	if err != nil {
 		return 0, err.Trace(alias, urlStr)
@@ -126,16 +134,16 @@ func putTargetStreamWithURL(urlStr string, reader io.Reader, size int64, sseKey 
 	metadata := map[string]string{
 		"Content-Type": contentType,
 	}
-	return putTargetStream(context.Background(), alias, urlStrFull, reader, size, metadata, nil, sseKey)
+	return putTargetStream(context.Background(), alias, urlStrFull, reader, size, metadata, nil, sseKeyMap)
 }
 
 // copySourceToTargetURL copies to targetURL from source.
-func copySourceToTargetURL(alias string, urlStr string, source string, size int64, progress io.Reader, srcSSEKey, tgtSSEKey string) *probe.Error {
+func copySourceToTargetURL(alias string, urlStr string, source string, size int64, progress io.Reader, srcSSEKeys, tgtSSEKeys map[string]string) *probe.Error {
 	targetClnt, err := newClientFromAlias(alias, urlStr)
 	if err != nil {
 		return err.Trace(alias, urlStr)
 	}
-	err = targetClnt.Copy(source, size, progress, srcSSEKey, tgtSSEKey)
+	err = targetClnt.Copy(source, size, progress, srcSSEKeys, tgtSSEKeys)
 	if err != nil {
 		return err.Trace(alias, urlStr)
 	}
@@ -216,4 +224,37 @@ func newClient(aliasedURL string) (Client, *probe.Error) {
 		return nil, errInvalidAliasedURL(aliasedURL).Trace(aliasedURL)
 	}
 	return newClientFromAlias(alias, urlStrFull)
+}
+
+// getSSEKeyMap returns the prefix to sse-c key mapping for a particular alias.
+func getSSEKeyMap(alias, ssekeys string) (sseKeyMap map[string]string, err *probe.Error) {
+	sseKeyMap = make(map[string]string)
+	if ssekeys == "" {
+		return sseKeyMap, nil
+	}
+	fmt.Println("inside getSSEKeyMap urlalias==", alias, "sseKeys ===>", ssekeys)
+	alias = strings.TrimSuffix(alias, string(filepath.Separator))
+	fields := strings.Split(ssekeys, ":")
+	for _, field := range fields {
+		pair := strings.Split(field, "=")
+		prefix := strings.TrimPrefix(pair[0], alias)
+		prefix = strings.TrimPrefix(prefix, string(filepath.Separator))
+		fmt.Println("prefix ==", prefix, "p0=", pair[0], " p1=", pair[1], "alias+=", alias+string(filepath.Separator))
+		if len(pair) != 2  {
+			return nil, probe.NewError(errors.New("sse-c prefix should be of the form prefix=key"))
+		}
+		if strings.HasPrefix(pair[0],p)
+		sseKeyMap[prefix] = pair[1]
+	}
+	return
+}
+
+func getSSEKey(urlPath string, sseKeyMap map[string]string) string {
+	for prefix, sseKey := range sseKeyMap {
+		_, e := filepath.Match(prefix, urlPath)
+		if e == nil {
+			return sseKey
+		}
+	}
+	return ""
 }

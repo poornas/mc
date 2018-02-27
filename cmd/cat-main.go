@@ -36,7 +36,7 @@ import (
 var (
 	catFlags = []cli.Flag{
 		cli.StringFlag{
-			Name:  "encrypt",
+			Name:  "encrypt-key",
 			Usage: "Encrypt on server side",
 		},
 	}
@@ -73,7 +73,7 @@ EXAMPLES:
       $ {{.HelpName}} part.* > complete.img
 
    4. Stream a server encrypted object from Amazon S3 cloud storage to standard output.
-      $ {{.HelpName}} --encrypt 'customerspecifiedencryptky32bits' s3/ferenginar/klingon_opera_aktuh_maylotah.ogg
+      $ {{.HelpName}} --encrypt-key 's3/ferenginar=customerspecifiedencryptky32bits' s3/ferenginar/klingon_opera_aktuh_maylotah.ogg
 
 `,
 }
@@ -239,12 +239,16 @@ func mainCat(ctx *cli.Context) error {
 			}
 		}
 	}
-	sseKey := ctx.String("encrypt")
+	sseKey := ctx.String("encrypt-key")
+	fmt.Println("seeKey==>", sseKey)
 	if key := os.Getenv("MC_ENCRYPT_KEY"); key != "" {
 		sseKey = key
 	}
+
 	// Convert arguments to URLs: expand alias, fix format.
 	for _, url := range args {
+		m, e := getSSEKeyMap(sseKey, url)
+		fmt.Println("::::::::::::::::::::", m, e)
 		fatalIf(catURL(url, sseKey).Trace(url), "Unable to read from `"+url+"`.")
 	}
 	return nil
