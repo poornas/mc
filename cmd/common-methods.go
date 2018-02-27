@@ -82,13 +82,14 @@ func getSourceStream(alias string, urlStr string, fetchStat bool) (reader io.Rea
 	if err != nil {
 		return nil, nil, err.Trace(alias, urlStr)
 	}
-	reader, err = sourceClnt.Get()
+	sseKey := "kptodo"
+	reader, err = sourceClnt.Get(sseKey)
 	if err != nil {
 		return nil, nil, err.Trace(alias, urlStr)
 	}
 	metadata = map[string]string{}
 	if fetchStat {
-		st, err := sourceClnt.Stat(false, true)
+		st, err := sourceClnt.Stat(false, true, sseKey)
 		if err != nil {
 			return nil, nil, err.Trace(alias, urlStr)
 		}
@@ -108,7 +109,9 @@ func putTargetStream(ctx context.Context, alias string, urlStr string, reader io
 	if err != nil {
 		return 0, err.Trace(alias, urlStr)
 	}
-	n, err := targetClnt.Put(ctx, reader, size, metadata, progress)
+	sseKey := "kptodo"
+
+	n, err := targetClnt.Put(ctx, reader, size, metadata, progress, sseKey)
 	if err != nil {
 		return n, err.Trace(alias, urlStr)
 	}
@@ -134,7 +137,9 @@ func copySourceToTargetURL(alias string, urlStr string, source string, size int6
 	if err != nil {
 		return err.Trace(alias, urlStr)
 	}
-	err = targetClnt.Copy(source, size, progress)
+	srcSSEKey := "kptodo"
+	tgtSSEKey := "kptodo"
+	err = targetClnt.Copy(source, size, progress, srcSSEKey, tgtSSEKey)
 	if err != nil {
 		return err.Trace(alias, urlStr)
 	}

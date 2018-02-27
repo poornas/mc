@@ -348,7 +348,7 @@ func (mj *mirrorJob) watchMirror(ctx context.Context, cancelMirror context.Cance
 						mj.statusCh <- mirrorURL.WithError(err)
 						continue
 					}
-					sourceContent, err := sourceClient.Stat(false, false)
+					sourceContent, err := sourceClient.Stat(false, false, "")
 					if err != nil {
 						// source doesn't exist anymore
 						mj.statusCh <- mirrorURL.WithError(err)
@@ -362,7 +362,7 @@ func (mj *mirrorJob) watchMirror(ctx context.Context, cancelMirror context.Cance
 					}
 					shouldQueue := false
 					if !mj.isOverwrite {
-						_, err = targetClient.Stat(false, false)
+						_, err = targetClient.Stat(false, false, "")
 						if err == nil {
 							continue
 						} // doesn't exist
@@ -385,7 +385,7 @@ func (mj *mirrorJob) watchMirror(ctx context.Context, cancelMirror context.Cance
 						mj.statusCh <- mirrorURL.WithError(err)
 						return
 					}
-					_, err = targetClient.Stat(false, false)
+					_, err = targetClient.Stat(false, false, "")
 					if err == nil {
 						continue
 					} // doesn't exist

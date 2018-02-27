@@ -181,7 +181,7 @@ func url2StatWithMetadata(urlStr string, isFetchMeta bool) (client Client, conte
 	if err != nil {
 		return nil, nil, err.Trace(urlStr)
 	}
-	content, err = client.Stat(false, isFetchMeta)
+	content, err = client.Stat(false, isFetchMeta, "")
 	if err != nil {
 		return nil, nil, err.Trace(urlStr)
 	}
