@@ -17,6 +17,7 @@
 package cmd
 
 import (
+	"fmt"
 	"os"
 	"syscall"
 
@@ -25,7 +26,12 @@ import (
 )
 
 var (
-	pipeFlags = []cli.Flag{}
+	pipeFlags = []cli.Flag{
+		cli.StringFlag{
+			Name:  "encrypt",
+			Usage: "Encrypt on server side",
+		},
+	}
 )
 
 // Display contents of a file.
@@ -44,6 +50,8 @@ USAGE:
 FLAGS:
   {{range .VisibleFlags}}{{.}}
   {{end}}
+ENVIRONMENT VARIABLES:
+	MC_ENCRYPT_KEY: List of prefix=sse-key delimited by spaces
 EXAMPLES:
    1. Write contents of stdin to a file on local filesystem.
       $ {{.HelpName}} /tmp/hello-world.go
@@ -55,20 +63,28 @@ EXAMPLES:
       $ cat debian-8.2.iso | {{.HelpName}} s3/ferenginar/gnuos.iso
 
    4. Stream MySQL database dump to Amazon S3 directly.
-      $ mysqldump -u root -p ******* accountsdb | {{.HelpName}} s3/ferenginar/backups/accountsdb-oct-9-2015.sql
+			$ mysqldump -u root -p ******* accountsdb | {{.HelpName}} s3/ferenginar/backups/accountsdb-oct-9-2015.sql
+
+	 5. Stream an object to Amazon S3 cloud storage and encrypt on server.
+      $ {{.HelpName}} --encrypt-keys "s3/ferenginar/=32byteslongsecretkeymustbegiven1" s3/ferenginar/klingon_opera_aktuh_maylotah.ogg
+
 `,
 }
 
-func pipe(targetURL string) *probe.Error {
+func pipe(targetURL string, encKeydb map[string][]prefixSSEPair) *probe.Error {
 	if targetURL == "" {
 		// When no target is specified, pipe cat's stdin to stdout.
 		return catOut(os.Stdin, -1).Trace()
 	}
+	fmt.Println("==========================")
+	alias, _ := url2Alias(targetURL)
+	fmt.Println("urlstr=-=>", targetURL)
+	sseKey := getSSEKey(targetURL, encKeydb[alias])
 
 	// Stream from stdin to multiple objects until EOF.
 	// Ignore size, since os.Stat() would not return proper size all the time
 	// for local filesystem for example /proc files.
-	_, err := putTargetStreamWithURL(targetURL, os.Stdin, -1)
+	_, err := putTargetStreamWithURL(targetURL, os.Stdin, -1, sseKey)
 	// TODO: See if this check is necessary.
 	switch e := err.ToGoError().(type) {
 	case *os.PathError:
@@ -94,12 +110,21 @@ func mainPipe(ctx *cli.Context) error {
 	checkPipeSyntax(ctx)
 
 	if len(ctx.Args()) == 0 {
-		err := pipe("")
+		err := pipe("", nil)
 		fatalIf(err.Trace("stdout"), "Unable to write to one or more targets.")
 	} else {
 		// extract URLs.
 		URLs := ctx.Args()
-		err := pipe(URLs[0])
+		sseKeys := os.Getenv("MC_ENCRYPT_KEY")
+		if key := ctx.String("encrypt-key"); key != "" {
+			sseKeys = key
+		}
+		fmt.Println("[pipe] sseKey==>", sseKeys)
+
+		encKeydb, err := parseEncryptionKeys(sseKeys)
+		fmt.Println("sseKeys ===>", encKeydb, "err =>", err)
+		fatalIf(err, "Unable to parse encryption keys")
+		err = pipe(URLs[0], encKeydb)
 		fatalIf(err.Trace(URLs[0]), "Unable to write to one or more targets.")
 	}
 

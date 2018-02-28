@@ -3,12 +3,10 @@ package cmd
 import (
 	"errors"
 	"fmt"
-	"runtime"
 	"sort"
 	"strings"
 
 	"github.com/minio/mc/pkg/probe"
-	"github.com/minio/minio/pkg/wildcard"
 )
 
 // encryption keys db
@@ -62,7 +60,7 @@ func parseEncryptionKeys(ssekeys string) (encMap map[string][]prefixSSEPair, err
 		return
 	}
 
-	fields := strings.Split(ssekeys, ":")
+	fields := strings.Fields(ssekeys)
 	for _, field := range fields {
 		pair := strings.Split(field, "=")
 		if len(pair) != 2 {
@@ -103,18 +101,19 @@ func getSSEKey(resource string, encKeys []prefixSSEPair) string {
 	fmt.Println("sorted encKeys ==>", encKeys, "resource-=->|", resource, "| enckye length=>", len(encKeys))
 	for _, k := range encKeys {
 		fmt.Println("k===prefix|", k.prefix, "|")
-		if prefixMatch(k.prefix, resource) {
+		if strings.HasPrefix(resource, k.prefix) {
 			fmt.Println("HUrrah matched,....", k.prefix, " for :", resource)
 			return k.sseKey
 		}
 	}
 	return ""
 }
-func prefixMatch(pattern, resource string) bool {
-	fmt.Println("patrn=>|", pattern, "|resource=>|", resource, "| match???", wildcard.Match(pattern, resource))
-	if runtime.GOOS == "windows" {
-		// For windows specifically make sure we are case insensitive.
-		return wildcard.Match(strings.ToLower(pattern), strings.ToLower(resource))
-	}
-	return wildcard.Match(pattern, resource)
-}
+
+// func prefixMatch(pattern, resource string) bool {
+// 	fmt.Println("patrn=>|", pattern, "|resource=>|", resource, "| match???", wildcard.Match(pattern, resource))
+// 	if runtime.GOOS == "windows" {
+// 		// For windows specifically make sure we are case insensitive.
+// 		return wildcard.Match(strings.ToLower(pattern), strings.ToLower(resource))
+// 	}
+// 	return wildcard.Match(pattern, resource)
+// }

@@ -88,7 +88,6 @@ func getSourceStream(alias string, urlStr string, fetchStat bool, sseKey string)
 		return nil, nil, err.Trace(alias, urlStr)
 	}
 
-	//sseKey := "kptodo"
 	reader, err = sourceClnt.Get(sseKey)
 	if err != nil {
 		return nil, nil, err.Trace(alias, urlStr)
@@ -110,12 +109,11 @@ func getSourceStream(alias string, urlStr string, fetchStat bool, sseKey string)
 }
 
 // putTargetStream writes to URL from Reader.
-func putTargetStream(ctx context.Context, alias string, urlStr string, reader io.Reader, size int64, metadata map[string]string, progress io.Reader) (int64, *probe.Error) {
+func putTargetStream(ctx context.Context, alias string, urlStr string, reader io.Reader, size int64, metadata map[string]string, progress io.Reader, sseKey string) (int64, *probe.Error) {
 	targetClnt, err := newClientFromAlias(alias, urlStr)
 	if err != nil {
 		return 0, err.Trace(alias, urlStr)
 	}
-	sseKey := "kptodo"
 
 	n, err := targetClnt.Put(ctx, reader, size, metadata, progress, sseKey)
 	if err != nil {
@@ -125,7 +123,7 @@ func putTargetStream(ctx context.Context, alias string, urlStr string, reader io
 }
 
 // putTargetStreamWithURL writes to URL from reader. If length=-1, read until EOF.
-func putTargetStreamWithURL(urlStr string, reader io.Reader, size int64) (int64, *probe.Error) {
+func putTargetStreamWithURL(urlStr string, reader io.Reader, size int64, sseKey string) (int64, *probe.Error) {
 	alias, urlStrFull, _, err := expandAlias(urlStr)
 	if err != nil {
 		return 0, err.Trace(alias, urlStr)
@@ -134,18 +132,17 @@ func putTargetStreamWithURL(urlStr string, reader io.Reader, size int64) (int64,
 	metadata := map[string]string{
 		"Content-Type": contentType,
 	}
-	return putTargetStream(context.Background(), alias, urlStrFull, reader, size, metadata, nil)
+	return putTargetStream(context.Background(), alias, urlStrFull, reader, size, metadata, nil, sseKey)
 }
 
 // copySourceToTargetURL copies to targetURL from source.
-func copySourceToTargetURL(alias string, urlStr string, source string, size int64, progress io.Reader) *probe.Error {
+func copySourceToTargetURL(alias string, urlStr string, source string, size int64, progress io.Reader, sseKey string) *probe.Error {
 	targetClnt, err := newClientFromAlias(alias, urlStr)
 	if err != nil {
 		return err.Trace(alias, urlStr)
 	}
-	srcSSEKey := "kptodo"
-	tgtSSEKey := "kptodo"
-	err = targetClnt.Copy(source, size, progress, srcSSEKey, tgtSSEKey)
+	fmt.Println("using same ssekey for copy...", sseKey)
+	err = targetClnt.Copy(source, size, progress, sseKey, sseKey)
 	if err != nil {
 		return err.Trace(alias, urlStr)
 	}
@@ -165,18 +162,17 @@ func uploadSourceToTargetURL(ctx context.Context, urls URLs, progress io.Reader)
 	// Optimize for server side copy if the host is same.
 	if sourceAlias == targetAlias {
 		sourcePath := filepath.ToSlash(sourceURL.Path)
-		err := copySourceToTargetURL(targetAlias, targetURL.String(), sourcePath, length, progress)
+		err := copySourceToTargetURL(targetAlias, targetURL.String(), sourcePath, length, progress, urls.SrcSSEKey)
 		if err != nil {
 			return urls.WithError(err.Trace(sourceURL.String()))
 		}
 	} else {
-		sseKey := "kptodo"
 		// Proceed with regular stream copy.
-		reader, metadata, err := getSourceStream(sourceAlias, sourceURL.String(), true, sseKey)
+		reader, metadata, err := getSourceStream(sourceAlias, sourceURL.String(), true, urls.SrcSSEKey)
 		if err != nil {
 			return urls.WithError(err.Trace(sourceURL.String()))
 		}
-		_, err = putTargetStream(ctx, targetAlias, targetURL.String(), reader, length, metadata, progress)
+		_, err = putTargetStream(ctx, targetAlias, targetURL.String(), reader, length, metadata, progress, urls.TgtSSEKey)
 		if err != nil {
 			return urls.WithError(err.Trace(targetURL.String()))
 		}

@@ -49,6 +49,10 @@ var (
 			Name:  "newer-than",
 			Usage: "Copy objects newer than N days",
 		},
+		cli.StringFlag{
+			Name:  "encrypt-key",
+			Usage: "list of prefix=sse key values delimited by :",
+		},
 	}
 )
 
@@ -68,6 +72,9 @@ USAGE:
 FLAGS:
   {{range .VisibleFlags}}{{.}}
   {{end}}
+
+ENVIRONMENT VARIABLES:
+	 MC_ENCRYPT_KEY: List of prefix=sse-key pairs delimited by semi-colon
 
 EXAMPLES:
    1. Copy a list of objects from local file system to Amazon S3 cloud storage.
@@ -93,6 +100,12 @@ EXAMPLES:
 
    8. Copy a local folder with space separated characters to Amazon S3 cloud storage.
       $ {{.HelpName}} --recursive 'workdir/documents/May 2014/' s3/miniocloud
+
+	 9. Copy a local folder recursively to Amazon S3 cloud storage with server side encryption.
+	    $ {{.HelpName}} --recursive --encrypt-key "s3/backup/*=32byteslongsecretkeymustbegiven1" 'backup/documents/' s3/backup
+
+	10. Copy a folder recursively from Amazon S3 cloud storage with server side encryption to Minio cloud storage with server side encryption.
+	    $ {{.HelpName}} --recursive --encrypt-key "s3/documents/a/b/c=32byteslongsecretkeymustbegiven1 myminio/documents/=32byteslongsecretkeymustbegiven2" 's3/documents/' myminio/documents/
 
 `,
 }
@@ -206,7 +219,10 @@ func doPrepareCopyURLs(session *sessionV8, trapCh <-chan bool, cancelCopy contex
 
 	olderThan := session.Header.CommandIntFlags["older-than"]
 	newerThan := session.Header.CommandIntFlags["newer-than"]
-
+	encryptKeys := session.Header.CommandStringFlags["encrypt-key"]
+	encKeydb, err := parseEncryptionKeys(encryptKeys)
+	fmt.Println("sseKeys ===>", encKeydb, "err =>", err)
+	fatalIf(err, "Unable to parse encryption keys")
 	// Create a session data file to store the processed URLs.
 	dataFP := session.NewDataWriter()
 
@@ -214,8 +230,8 @@ func doPrepareCopyURLs(session *sessionV8, trapCh <-chan bool, cancelCopy contex
 	if !globalQuiet && !globalJSON { // set up progress bar
 		scanBar = scanBarFactory()
 	}
-
-	URLsCh := prepareCopyURLs(sourceURLs, targetURL, isRecursive)
+	fmt.Println("doPrepcopy ", sourceURLs, targetURL)
+	URLsCh := prepareCopyURLs(sourceURLs, targetURL, isRecursive, encKeydb)
 	done := false
 	for !done {
 		select {
@@ -407,12 +423,18 @@ func mainCopy(ctx *cli.Context) error {
 	recursive := ctx.Bool("recursive")
 	olderThan := ctx.Int("older-than")
 	newerThan := ctx.Int("newer-than")
+	sseKeys := os.Getenv("MC_ENCRYPT_KEY")
+	if key := ctx.String("encrypt-key"); key != "" {
+		sseKeys = key
+	}
+	fmt.Println("cp sseKey==>", sseKeys)
 
 	session := newSessionV8()
 	session.Header.CommandType = "cp"
 	session.Header.CommandBoolFlags["recursive"] = recursive
 	session.Header.CommandIntFlags["older-than"] = olderThan
 	session.Header.CommandIntFlags["newer-than"] = newerThan
+	session.Header.CommandStringFlags["encrypt-key"] = sseKeys
 
 	var e error
 	if session.Header.RootPath, e = os.Getwd(); e != nil {

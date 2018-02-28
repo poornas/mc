@@ -18,6 +18,7 @@ package cmd
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/minio/cli"
@@ -82,7 +83,7 @@ func matchExcludeOptions(excludeOptions []string, srcSuffix string) bool {
 	return false
 }
 
-func deltaSourceTarget(sourceURL, targetURL string, isFake, isOverwrite, isRemove bool, excludeOptions []string, URLsCh chan<- URLs) {
+func deltaSourceTarget(sourceURL, targetURL string, isFake, isOverwrite, isRemove bool, excludeOptions []string, URLsCh chan<- URLs, encKeydb map[string][]prefixSSEPair) {
 	// source and targets are always directories
 	sourceSeparator := string(newClientURL(sourceURL).Separator)
 	if !strings.HasSuffix(sourceURL, sourceSeparator) {
@@ -131,6 +132,14 @@ func deltaSourceTarget(sourceURL, targetURL string, isFake, isOverwrite, isRemov
 			continue
 		}
 
+		sourcePath := filepath.ToSlash(filepath.Join(sourceAlias, sourceClnt.GetURL().Path))
+		srcSSEKey := getSSEKey(sourcePath, encKeydb[sourceAlias])
+		fmt.Println("mirror...")
+		fmt.Println(sourcePath, srcSSEKey)
+		targetPath := filepath.ToSlash(filepath.Join(targetAlias, targetClnt.GetURL().Path))
+		tgtSSEKey := getSSEKey(targetPath, encKeydb[targetAlias])
+		fmt.Println("mirror...")
+		fmt.Println(targetPath, tgtSSEKey)
 		switch diffMsg.Diff {
 		case differInNone:
 			// No difference, continue.
@@ -142,6 +151,8 @@ func deltaSourceTarget(sourceURL, targetURL string, isFake, isOverwrite, isRemov
 				URLsCh <- URLs{Error: errOverWriteNotAllowed(diffMsg.SecondURL)}
 				continue
 			}
+			fmt.Println("d#0")
+
 			sourceSuffix := strings.TrimPrefix(diffMsg.FirstURL, sourceURL)
 			// Either available only in source or size differs and force is set
 			targetPath := urlJoinPath(targetURL, sourceSuffix)
@@ -152,8 +163,11 @@ func deltaSourceTarget(sourceURL, targetURL string, isFake, isOverwrite, isRemov
 				SourceContent: sourceContent,
 				TargetAlias:   targetAlias,
 				TargetContent: targetContent,
+				SrcSSEKey:     srcSSEKey,
+				TgtSSEKey:     tgtSSEKey,
 			}
 		case differInFirst:
+			fmt.Println("d#1", srcSSEKey)
 			// Only in first, always copy.
 			sourceSuffix := strings.TrimPrefix(diffMsg.FirstURL, sourceURL)
 			targetPath := urlJoinPath(targetURL, sourceSuffix)
@@ -164,8 +178,12 @@ func deltaSourceTarget(sourceURL, targetURL string, isFake, isOverwrite, isRemov
 				SourceContent: sourceContent,
 				TargetAlias:   targetAlias,
 				TargetContent: targetContent,
+				SrcSSEKey:     srcSSEKey,
+				TgtSSEKey:     tgtSSEKey,
 			}
 		case differInSecond:
+			fmt.Println("d#2")
+
 			if !isRemove && !isFake {
 				// Object removal not allowed if --remove is not set.
 				URLsCh <- URLs{
@@ -176,6 +194,7 @@ func deltaSourceTarget(sourceURL, targetURL string, isFake, isOverwrite, isRemov
 			URLsCh <- URLs{
 				TargetAlias:   targetAlias,
 				TargetContent: diffMsg.secondContent,
+				TgtSSEKey:     tgtSSEKey,
 			}
 		default:
 			URLsCh <- URLs{
@@ -186,8 +205,8 @@ func deltaSourceTarget(sourceURL, targetURL string, isFake, isOverwrite, isRemov
 }
 
 // Prepares urls that need to be copied or removed based on requested options.
-func prepareMirrorURLs(sourceURL string, targetURL string, isFake, isOverwrite, isRemove bool, excludeOptions []string) <-chan URLs {
+func prepareMirrorURLs(sourceURL string, targetURL string, isFake, isOverwrite, isRemove bool, excludeOptions []string, encKeydb map[string][]prefixSSEPair) <-chan URLs {
 	URLsCh := make(chan URLs)
-	go deltaSourceTarget(sourceURL, targetURL, isFake, isOverwrite, isRemove, excludeOptions, URLsCh)
+	go deltaSourceTarget(sourceURL, targetURL, isFake, isOverwrite, isRemove, excludeOptions, URLsCh, encKeydb)
 	return URLsCh
 }

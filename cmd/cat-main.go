@@ -237,13 +237,13 @@ func mainCat(ctx *cli.Context) error {
 			}
 		}
 	}
-	sseKey := os.Getenv("MC_ENCRYPT_KEY")
+	sseKeys := os.Getenv("MC_ENCRYPT_KEY")
 	if key := ctx.String("encrypt-key"); key != "" {
-		sseKey = key
+		sseKeys = key
 	}
-	fmt.Println("cat sseKey==>", sseKey)
+	fmt.Println("cat sseKey==>", sseKeys)
 
-	encKeydb, err := parseEncryptionKeys(sseKey)
+	encKeydb, err := parseEncryptionKeys(sseKeys)
 	fmt.Println("sseKeys ===>", encKeydb, "err =>", err)
 	fatalIf(err, "Unable to parse encryption keys")
 	// Convert arguments to URLs: expand alias, fix format.
