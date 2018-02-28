@@ -17,6 +17,8 @@
 package cmd
 
 import (
+	"fmt"
+	"os"
 	"strings"
 
 	"github.com/fatih/color"
@@ -30,6 +32,10 @@ var (
 		cli.BoolFlag{
 			Name:  "recursive, r",
 			Usage: "Stat recursively.",
+		},
+		cli.StringFlag{
+			Name:  "encrypt",
+			Usage: "list of prefix=server-side-encryption-keys delimited by spaces",
 		},
 	}
 )
@@ -49,7 +55,11 @@ USAGE:
 
 FLAGS:
   {{range .VisibleFlags}}{{.}}
-  {{end}}
+	{{end}}
+
+ENVIRONMENT VARIABLES:
+	MC_ENCRYPT_KEY: List of prefix=server-side-encryption-keys delimited by spaces
+
 EXAMPLES:
    1. Stat all contents of mybucket on Amazon S3 cloud storage.
       $ {{.HelpName}} s3/mybucket/
@@ -77,7 +87,6 @@ func checkStatSyntax(ctx *cli.Context) {
 	// extract URLs.
 	URLs := ctx.Args()
 	isIncomplete := false
-
 	for _, url := range URLs {
 		_, _, err := url2Stat(url)
 		if err != nil && !isURLPrefixExists(url, isIncomplete) {
@@ -109,6 +118,16 @@ func mainStat(ctx *cli.Context) error {
 		args = []string{"."}
 	}
 
+	sseKeys := os.Getenv("MC_ENCRYPT_KEY")
+	if key := ctx.String("encrypt-key"); key != "" {
+		sseKeys = key
+	}
+	fmt.Println("cat sseKey==>", sseKeys)
+
+	encKeydb, err := parseEncryptionKeys(sseKeys)
+	fmt.Println("sseKeys ===>", encKeydb, "err =>", err)
+	fatalIf(err, "Unable to parse encryption keys")
+
 	var cErr error
 	for _, targetURL := range args {
 		var clnt Client
@@ -116,7 +135,7 @@ func mainStat(ctx *cli.Context) error {
 		fatalIf(err.Trace(targetURL), "Unable to initialize target `"+targetURL+"`.")
 
 		targetAlias, _, _ := mustExpandAlias(targetURL)
-		return doStat(clnt, isRecursive, targetAlias, targetURL)
+		return doStat(clnt, isRecursive, targetAlias, targetURL, encKeydb)
 	}
 	return cErr
 
