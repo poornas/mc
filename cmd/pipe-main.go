@@ -28,7 +28,7 @@ import (
 var (
 	pipeFlags = []cli.Flag{
 		cli.StringFlag{
-			Name:  "encrypt",
+			Name:  "encrypt-key",
 			Usage: "Encrypt on server side",
 		},
 	}
@@ -51,7 +51,7 @@ FLAGS:
   {{range .VisibleFlags}}{{.}}
   {{end}}
 ENVIRONMENT VARIABLES:
-	MC_ENCRYPT_KEY: List of prefix=sse-key delimited by spaces
+   MC_ENCRYPT_KEY: List of alias/prefix=sse-key delimited by spaces
 EXAMPLES:
    1. Write contents of stdin to a file on local filesystem.
       $ {{.HelpName}} /tmp/hello-world.go
@@ -63,10 +63,10 @@ EXAMPLES:
       $ cat debian-8.2.iso | {{.HelpName}} s3/ferenginar/gnuos.iso
 
    4. Stream MySQL database dump to Amazon S3 directly.
-			$ mysqldump -u root -p ******* accountsdb | {{.HelpName}} s3/ferenginar/backups/accountsdb-oct-9-2015.sql
+      $ mysqldump -u root -p ******* accountsdb | {{.HelpName}} s3/ferenginar/backups/accountsdb-oct-9-2015.sql
 
-	 5. Stream an object to Amazon S3 cloud storage and encrypt on server.
-      $ {{.HelpName}} --encrypt-keys "s3/ferenginar/=32byteslongsecretkeymustbegiven1" s3/ferenginar/klingon_opera_aktuh_maylotah.ogg
+   5. Stream an object to Amazon S3 cloud storage and encrypt on server.
+      $ {{.HelpName}} --encrypt-key "s3/ferenginar/=32byteslongsecretkeymustbegiven1" s3/ferenginar/klingon_opera_aktuh_maylotah.ogg
 
 `,
 }

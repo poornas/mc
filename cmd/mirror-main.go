@@ -79,8 +79,8 @@ var (
 			Usage: "Select objects newer than N days",
 		},
 		cli.StringFlag{
-			Name:  "encrypt-keys",
-			Usage: "list of prefix=server-side-encryption-keys delimited by spaces",
+			Name:  "encrypt-key",
+			Usage: "Decrypt/Encrypt on server side",
 		},
 	}
 )
@@ -103,7 +103,7 @@ FLAGS:
   {{end}}
 
 ENVIRONMENT VARIABLES:
-   MC_ENCRYPT_KEY: List of prefix=sse-key delimited by spaces
+   MC_ENCRYPT_KEY: List of alias/prefix=sse-key delimited by spaces
 
 EXAMPLES:
    1. Mirror a bucket recursively from Minio cloud storage to a bucket on Amazon S3 cloud storage.
@@ -140,7 +140,7 @@ EXAMPLES:
       $ {{.HelpName}} --older-than=30 s3/test ~/test
 	
   11. Mirror server encrypted objects from Minio cloud storage to a bucket on Amazon S3 cloud storage 
-      $ {{.HelpName}} --encrypt-keys "minio/photos=32byteslongsecretkeymustbegiven1 s3/archive=32byteslongsecretkeymustbegiven2" minio/photos/ s3/archive
+      $ {{.HelpName}} --encrypt-key "minio/photos=32byteslongsecretkeymustbegiven1 s3/archive=32byteslongsecretkeymustbegiven2" minio/photos/ s3/archive
 
 `,
 }

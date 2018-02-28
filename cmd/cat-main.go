@@ -37,7 +37,7 @@ var (
 	catFlags = []cli.Flag{
 		cli.StringFlag{
 			Name:  "encrypt-key",
-			Usage: "Encrypt on server side",
+			Usage: "Decrypt server side encrypted object",
 		},
 	}
 )
@@ -60,7 +60,7 @@ FLAGS:
   {{end}}
 
 ENVIRONMENT VARIABLES:
-	MC_ENCRYPT_KEY: Server side encryption key for object
+   MC_ENCRYPT_KEY: List of alias/prefix=sse-key pairs delimited by spaces
 EXAMPLES:
    1. Stream an object from Amazon S3 cloud storage to mplayer standard input.
       $ {{.HelpName}} s3/ferenginar/klingon_opera_aktuh_maylotah.ogg | mplayer -

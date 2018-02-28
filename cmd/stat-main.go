@@ -34,8 +34,8 @@ var (
 			Usage: "Stat recursively.",
 		},
 		cli.StringFlag{
-			Name:  "encrypt",
-			Usage: "list of prefix=server-side-encryption-keys delimited by spaces",
+			Name:  "encrypt-key",
+			Usage: "Encrypt on server side",
 		},
 	}
 )
@@ -55,10 +55,10 @@ USAGE:
 
 FLAGS:
   {{range .VisibleFlags}}{{.}}
-	{{end}}
+  {{end}}
 
 ENVIRONMENT VARIABLES:
-	MC_ENCRYPT_KEY: List of prefix=server-side-encryption-keys delimited by spaces
+   MC_ENCRYPT_KEY: List of alias/prefix=sse-keys delimited by spaces
 
 EXAMPLES:
    1. Stat all contents of mybucket on Amazon S3 cloud storage.
@@ -68,7 +68,10 @@ EXAMPLES:
       $ {{.HelpName}} s3\mybucket\
 
    3. Stat files recursively on a local filesystem on Microsoft Windows.
-      $ {{.HelpName}} --recursive C:\Users\Worf\
+			$ {{.HelpName}} --recursive C:\Users\Worf\
+   
+	 4. Stat files which are encrypted on the server side
+      $ {{.HelpName}} --encrypt-key 's3/ferenginar=customerspecifiedencryptky32bits' s3/ferenginar/klingon_opera_aktuh_maylotah.ogg
 `,
 }
 

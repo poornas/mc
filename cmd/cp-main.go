@@ -51,7 +51,7 @@ var (
 		},
 		cli.StringFlag{
 			Name:  "encrypt-key",
-			Usage: "list of prefix=sse key values delimited by :",
+			Usage: "Decrypt/Encrypt on server side",
 		},
 	}
 )
@@ -74,7 +74,7 @@ FLAGS:
   {{end}}
 
 ENVIRONMENT VARIABLES:
-	 MC_ENCRYPT_KEY: List of prefix=sse-key pairs delimited by semi-colon
+   MC_ENCRYPT_KEY: List of alias/prefix=sse-key pairs delimited by spaces
 
 EXAMPLES:
    1. Copy a list of objects from local file system to Amazon S3 cloud storage.
@@ -101,11 +101,11 @@ EXAMPLES:
    8. Copy a local folder with space separated characters to Amazon S3 cloud storage.
       $ {{.HelpName}} --recursive 'workdir/documents/May 2014/' s3/miniocloud
 
-	 9. Copy a local folder recursively to Amazon S3 cloud storage with server side encryption.
-	    $ {{.HelpName}} --recursive --encrypt-key "s3/backup/*=32byteslongsecretkeymustbegiven1" 'backup/documents/' s3/backup
+   9. Copy a local folder recursively to Amazon S3 cloud storage with server side encryption.
+      $ {{.HelpName}} --recursive --encrypt-key "s3/backup=32byteslongsecretkeymustbegiven1" 'backup/documents/' s3/backup
 
-	10. Copy a folder recursively from Amazon S3 cloud storage with server side encryption to Minio cloud storage with server side encryption.
-	    $ {{.HelpName}} --recursive --encrypt-key "s3/documents/a/b/c=32byteslongsecretkeymustbegiven1 myminio/documents/=32byteslongsecretkeymustbegiven2" 's3/documents/' myminio/documents/
+  10. Copy a folder recursively from Amazon S3 cloud storage with server side encryption to Minio cloud storage with server side encryption.
+      $ {{.HelpName}} --recursive --encrypt-key "s3/documents/a/b/c=32byteslongsecretkeymustbegiven1 myminio/documents/=32byteslongsecretkeymustbegiven2" 's3/documents/' myminio/documents/
 
 `,
 }
