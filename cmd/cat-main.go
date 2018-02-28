@@ -241,10 +241,8 @@ func mainCat(ctx *cli.Context) error {
 	if key := ctx.String("encrypt-key"); key != "" {
 		sseKeys = key
 	}
-	fmt.Println("cat sseKey==>", sseKeys)
 
 	encKeydb, err := parseEncryptionKeys(sseKeys)
-	fmt.Println("sseKeys ===>", encKeydb, "err =>", err)
 	fatalIf(err, "Unable to parse encryption keys")
 	// Convert arguments to URLs: expand alias, fix format.
 	for _, url := range args {

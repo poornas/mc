@@ -134,12 +134,9 @@ func deltaSourceTarget(sourceURL, targetURL string, isFake, isOverwrite, isRemov
 
 		sourcePath := filepath.ToSlash(filepath.Join(sourceAlias, sourceClnt.GetURL().Path))
 		srcSSEKey := getSSEKey(sourcePath, encKeydb[sourceAlias])
-		fmt.Println("mirror...")
-		fmt.Println(sourcePath, srcSSEKey)
 		targetPath := filepath.ToSlash(filepath.Join(targetAlias, targetClnt.GetURL().Path))
 		tgtSSEKey := getSSEKey(targetPath, encKeydb[targetAlias])
-		fmt.Println("mirror...")
-		fmt.Println(targetPath, tgtSSEKey)
+
 		switch diffMsg.Diff {
 		case differInNone:
 			// No difference, continue.
@@ -151,7 +148,6 @@ func deltaSourceTarget(sourceURL, targetURL string, isFake, isOverwrite, isRemov
 				URLsCh <- URLs{Error: errOverWriteNotAllowed(diffMsg.SecondURL)}
 				continue
 			}
-			fmt.Println("d#0")
 
 			sourceSuffix := strings.TrimPrefix(diffMsg.FirstURL, sourceURL)
 			// Either available only in source or size differs and force is set
@@ -167,7 +163,6 @@ func deltaSourceTarget(sourceURL, targetURL string, isFake, isOverwrite, isRemov
 				TgtSSEKey:     tgtSSEKey,
 			}
 		case differInFirst:
-			fmt.Println("d#1", srcSSEKey)
 			// Only in first, always copy.
 			sourceSuffix := strings.TrimPrefix(diffMsg.FirstURL, sourceURL)
 			targetPath := urlJoinPath(targetURL, sourceSuffix)
@@ -182,7 +177,6 @@ func deltaSourceTarget(sourceURL, targetURL string, isFake, isOverwrite, isRemov
 				TgtSSEKey:     tgtSSEKey,
 			}
 		case differInSecond:
-			fmt.Println("d#2")
 
 			if !isRemove && !isFake {
 				// Object removal not allowed if --remove is not set.

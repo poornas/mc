@@ -17,7 +17,6 @@
 package cmd
 
 import (
-	"fmt"
 	"path/filepath"
 	"strings"
 
@@ -110,15 +109,12 @@ func prepareCopyURLsTypeA(sourceURL string, targetURL string, encKeydb map[strin
 // prepareCopyContentTypeA - makes CopyURLs content for copying.
 func makeCopyContentTypeA(sourceAlias string, sourceContent *clientContent, targetAlias string, targetURL string, encKeydb map[string][]prefixSSEPair) URLs {
 	targetContent := clientContent{URL: *newClientURL(targetURL)}
-	fmt.Println(" =========================> sourceURL>", sourceAlias, sourceContent.URL.Path, "encKeydb ?", encKeydb)
 
 	sourcePath := filepath.ToSlash(filepath.Join(sourceAlias, sourceContent.URL.Path))
 	targetPath := filepath.ToSlash(filepath.Join(targetAlias, targetContent.URL.Path))
 
-	fmt.Println(" ? sourceURL>", sourcePath, "taegetr ?", targetPath)
 	srcSSEKey := getSSEKey(sourcePath, encKeydb[sourceAlias])
 	tgtSSEKey := getSSEKey(targetPath, encKeydb[targetAlias])
-	fmt.Println("srcSSEKey===>", srcSSEKey, " tgtSSEKey====>", tgtSSEKey)
 
 	return URLs{
 		SourceAlias:   sourceAlias,
@@ -137,7 +133,6 @@ func prepareCopyURLsTypeB(sourceURL string, targetURL string, encKeydb map[strin
 	sourceAlias, _, _ := mustExpandAlias(sourceURL)
 	// Find alias and expanded clientURL.
 	targetAlias, targetURL, _ := mustExpandAlias(targetURL)
-	fmt.Println("copyurlsB==>", sourceURL, targetURL)
 
 	_, sourceContent, err := url2Stat(sourceURL)
 	if err != nil {
@@ -172,7 +167,6 @@ func prepareCopyURLsTypeC(sourceURL, targetURL string, isRecursive bool, encKeyd
 	sourceAlias, _, _ := mustExpandAlias(sourceURL)
 	// Find alias and expanded clientURL.
 	targetAlias, targetURL, _ := mustExpandAlias(targetURL)
-	fmt.Println("copyurlsC==>", sourceURL, targetURL)
 	copyURLsCh := make(chan URLs)
 	go func(sourceURL, targetURL string, copyURLsCh chan URLs) {
 		defer close(copyURLsCh)
@@ -233,7 +227,6 @@ func prepareCopyURLsTypeD(sourceURLs []string, targetURL string, isRecursive boo
 
 // prepareCopyURLs - prepares target and source clientURLs for copying.
 func prepareCopyURLs(sourceURLs []string, targetURL string, isRecursive bool, encKeydb map[string][]prefixSSEPair) <-chan URLs {
-	fmt.Println("enc keydb==>", encKeydb)
 	copyURLsCh := make(chan URLs)
 	go func(sourceURLs []string, targetURL string, copyURLsCh chan URLs) {
 		defer close(copyURLsCh)

@@ -17,7 +17,6 @@
 package cmd
 
 import (
-	"fmt"
 	"os"
 	"syscall"
 
@@ -76,9 +75,7 @@ func pipe(targetURL string, encKeydb map[string][]prefixSSEPair) *probe.Error {
 		// When no target is specified, pipe cat's stdin to stdout.
 		return catOut(os.Stdin, -1).Trace()
 	}
-	fmt.Println("==========================")
 	alias, _ := url2Alias(targetURL)
-	fmt.Println("urlstr=-=>", targetURL)
 	sseKey := getSSEKey(targetURL, encKeydb[alias])
 
 	// Stream from stdin to multiple objects until EOF.
@@ -119,10 +116,8 @@ func mainPipe(ctx *cli.Context) error {
 		if key := ctx.String("encrypt-key"); key != "" {
 			sseKeys = key
 		}
-		fmt.Println("[pipe] sseKey==>", sseKeys)
 
 		encKeydb, err := parseEncryptionKeys(sseKeys)
-		fmt.Println("sseKeys ===>", encKeydb, "err =>", err)
 		fatalIf(err, "Unable to parse encryption keys")
 		err = pipe(URLs[0], encKeydb)
 		fatalIf(err.Trace(URLs[0]), "Unable to write to one or more targets.")

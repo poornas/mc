@@ -18,7 +18,6 @@ package cmd
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"path/filepath"
 	"regexp"
@@ -73,10 +72,7 @@ func getSourceStreamFromURL(urlStr string, encKeydb map[string][]prefixSSEPair) 
 	if err != nil {
 		return nil, err.Trace(urlStr)
 	}
-	fmt.Println("==========================")
-	fmt.Println("urlstr=-=>", urlStr)
 	sseKey := getSSEKey(urlStr, encKeydb[alias])
-
 	reader, _, err = getSourceStream(alias, urlStrFull, false, sseKey)
 	return reader, err
 }
@@ -87,7 +83,6 @@ func getSourceStream(alias string, urlStr string, fetchStat bool, sseKey string)
 	if err != nil {
 		return nil, nil, err.Trace(alias, urlStr)
 	}
-
 	reader, err = sourceClnt.Get(sseKey)
 	if err != nil {
 		return nil, nil, err.Trace(alias, urlStr)
@@ -114,7 +109,6 @@ func putTargetStream(ctx context.Context, alias string, urlStr string, reader io
 	if err != nil {
 		return 0, err.Trace(alias, urlStr)
 	}
-
 	n, err := targetClnt.Put(ctx, reader, size, metadata, progress, sseKey)
 	if err != nil {
 		return n, err.Trace(alias, urlStr)
@@ -141,7 +135,6 @@ func copySourceToTargetURL(alias string, urlStr string, source string, size int6
 	if err != nil {
 		return err.Trace(alias, urlStr)
 	}
-	fmt.Println("using same ssekey for copy...", sseKey)
 	err = targetClnt.Copy(source, size, progress, sseKey, sseKey)
 	if err != nil {
 		return err.Trace(alias, urlStr)

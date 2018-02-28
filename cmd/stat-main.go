@@ -17,7 +17,6 @@
 package cmd
 
 import (
-	"fmt"
 	"os"
 	"strings"
 
@@ -68,9 +67,9 @@ EXAMPLES:
       $ {{.HelpName}} s3\mybucket\
 
    3. Stat files recursively on a local filesystem on Microsoft Windows.
-			$ {{.HelpName}} --recursive C:\Users\Worf\
+      $ {{.HelpName}} --recursive C:\Users\Worf\
    
-	 4. Stat files which are encrypted on the server side
+   4. Stat files which are encrypted on the server side
       $ {{.HelpName}} --encrypt-key 's3/ferenginar=customerspecifiedencryptky32bits' s3/ferenginar/klingon_opera_aktuh_maylotah.ogg
 `,
 }
@@ -125,10 +124,8 @@ func mainStat(ctx *cli.Context) error {
 	if key := ctx.String("encrypt-key"); key != "" {
 		sseKeys = key
 	}
-	fmt.Println("cat sseKey==>", sseKeys)
 
 	encKeydb, err := parseEncryptionKeys(sseKeys)
-	fmt.Println("sseKeys ===>", encKeydb, "err =>", err)
 	fatalIf(err, "Unable to parse encryption keys")
 
 	var cErr error

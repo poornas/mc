@@ -221,7 +221,6 @@ func doPrepareCopyURLs(session *sessionV8, trapCh <-chan bool, cancelCopy contex
 	newerThan := session.Header.CommandIntFlags["newer-than"]
 	encryptKeys := session.Header.CommandStringFlags["encrypt-key"]
 	encKeydb, err := parseEncryptionKeys(encryptKeys)
-	fmt.Println("sseKeys ===>", encKeydb, "err =>", err)
 	fatalIf(err, "Unable to parse encryption keys")
 	// Create a session data file to store the processed URLs.
 	dataFP := session.NewDataWriter()
@@ -230,7 +229,6 @@ func doPrepareCopyURLs(session *sessionV8, trapCh <-chan bool, cancelCopy contex
 	if !globalQuiet && !globalJSON { // set up progress bar
 		scanBar = scanBarFactory()
 	}
-	fmt.Println("doPrepcopy ", sourceURLs, targetURL)
 	URLsCh := prepareCopyURLs(sourceURLs, targetURL, isRecursive, encKeydb)
 	done := false
 	for !done {
@@ -427,7 +425,6 @@ func mainCopy(ctx *cli.Context) error {
 	if key := ctx.String("encrypt-key"); key != "" {
 		sseKeys = key
 	}
-	fmt.Println("cp sseKey==>", sseKeys)
 
 	session := newSessionV8()
 	session.Header.CommandType = "cp"

@@ -343,12 +343,9 @@ func (mj *mirrorJob) watchMirror(ctx context.Context, cancelMirror context.Cance
 			targetAlias, expandedTargetPath, _ := mustExpandAlias(targetPath)
 			targetURL := newClientURL(expandedTargetPath)
 			sourcePath := filepath.ToSlash(filepath.Join(sourceAlias, sourceURL.Path))
-			fmt.Println("*************************watch *************************")
-			fmt.Println(" ? sourceURL>", sourcePath, "encKeydb ?", mj.encKeydb)
 			srcSSEKey := getSSEKey(sourcePath, mj.encKeydb[sourceAlias])
-			fmt.Println(" ? targetURL=-=->", targetURL.String())
 			tgtSSEKey := getSSEKey(targetPath, mj.encKeydb[targetAlias])
-			fmt.Println("check if these are okay~ srcSSEKey===>", srcSSEKey, " tgtSSEKey====>", tgtSSEKey)
+
 			if event.Type == EventCreate {
 				// we are checking if a destination file exists now, and if we only
 				// overwrite it when force is enabled.
@@ -743,10 +740,8 @@ func mainMirror(ctx *cli.Context) error {
 	if key := ctx.String("encrypt-key"); key != "" {
 		sseKeys = key
 	}
-	fmt.Println("cat sseKey==>", sseKeys)
 
 	encKeydb, err := parseEncryptionKeys(sseKeys)
-	fmt.Println("sseKeys ===>", encKeydb, "err =>", err)
 	fatalIf(err, "Unable to parse encryption keys")
 
 	if err := runMirror(srcURL, tgtURL, ctx, encKeydb); err != nil {
