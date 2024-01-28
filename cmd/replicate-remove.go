@@ -138,8 +138,24 @@ func mainReplicateRemove(cliCtx *cli.Context) error {
 	rmAll := cliCtx.Bool("all")
 	rmForce := cliCtx.Bool("force")
 	ruleID := cliCtx.String("id")
+	admclient, cerr := newAdminClient(aliasedURL)
+	fatalIf(cerr.Trace(aliasedURL), "Unable to initialize admin connection.")
+	_, sourceBucket := url2Alias(args[0])
+
 	if rmAll && rmForce {
-		fatalIf(client.RemoveReplication(ctx), "Unable to remove replication configuration")
+		err := client.RemoveReplication(ctx)
+		info, er := admclient.SiteReplicationInfo(ctx)
+		fatalIf(probe.NewError(er), "Unable to fetch site replication info.")
+		if info.Enabled {
+			fatalIf(err, "Unable to remove replication configuration")
+		}
+		// force remove all remote targets for this bucket
+		tgts, e := admclient.ListRemoteTargets(globalContext, sourceBucket, "replication")
+		fatalIf(probe.NewError(e).Trace(args...), "Unable to list remote targets")
+		for _, tgt := range tgts {
+			fatalIf(probe.NewError(admclient.RemoveRemoteTarget(globalContext, sourceBucket, tgt.Arn)).Trace(args...), "Unable to remove remote target")
+		}
+		fatalIf(err, "Unable to remove replication configuration")
 	} else {
 		var removeArn string
 		for _, rule := range rcfg.Rules {
@@ -152,9 +168,6 @@ func mainReplicateRemove(cliCtx *cli.Context) error {
 			Op: replication.RemoveOption,
 		}
 		fatalIf(client.SetReplication(ctx, &rcfg, opts), "Could not remove replication rule")
-		admclient, cerr := newAdminClient(aliasedURL)
-		fatalIf(cerr.Trace(aliasedURL), "Unable to initialize admin connection.")
-		_, sourceBucket := url2Alias(args[0])
 		fatalIf(probe.NewError(admclient.RemoveRemoteTarget(globalContext, sourceBucket, removeArn)).Trace(args...), "Unable to remove remote target")
 
 	}
