@@ -98,6 +98,10 @@ var replicateAddFlags = []cli.Flag{
 		Name:  "disable-proxy",
 		Usage: "disable proxying in active-active replication. If unset, default behavior is to proxy",
 	},
+	cli.BoolFlag{
+		Name:  "edge",
+		Usage: "enable edge replication for this target. default is non-edge",
+	},
 }
 
 var replicateAddCmd = cli.Command{
@@ -141,6 +145,11 @@ EXAMPLES:
      {{.Prompt}} {{.HelpName}} myminio/mybucket --remote-bucket https://foobar:foo12345@minio.siteb.example.com/targetbucket  \
          --replicate "existing-objects,delete,delete-marker" \
          --priority 1
+
+  6. Add replication configuration rule to replicate from edge bucket "sourcebucket" in alias "sourceminio" to "targetbucket" in alias "targetminio".
+     {{.Prompt}} {{.HelpName}} sourceminio/sourcebucket --remote-bucket targetminio/targetbucket \
+         --priority 1 --edge
+
 `,
 }
 
@@ -257,6 +266,7 @@ func fetchRemoteTarget(cli *cli.Context) (bktTarget *madmin.BucketTarget) {
 		ReplicationSync:     cli.Bool("sync"),
 		DisableProxy:        disableproxy,
 		HealthCheckDuration: time.Duration(cli.Uint("healthcheck-seconds")) * time.Second,
+		Edge:                cli.Bool("edge"),
 	}
 	return bktTarget
 }

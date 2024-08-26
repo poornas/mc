@@ -27,6 +27,7 @@ var ilmSubcommands = []cli.Command{
 	ilmRuleCmd,
 	ilmTierCmd,
 	ilmRestoreCmd,
+	ilmDefaultCmd,
 }
 
 var ilmCmd = cli.Command{

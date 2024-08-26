@@ -219,7 +219,6 @@ func (s replicateStatusMessage) String() string {
 		if !tgt.Online {
 			healthDot = console.Colorize("offline", dot)
 		}
-
 		var linkStatus string
 		if tgt.Online {
 			linkStatus = healthDot + fmt.Sprintf(" online (total downtime: %s)", valueui(timeDurationToHumanizedDuration(totalDowntime).String()))

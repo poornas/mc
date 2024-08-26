@@ -88,6 +88,11 @@ var replicateUpdateFlags = []cli.Flag{
 		Value: "auto",
 		Usage: "bucket path lookup supported by the server, valid options are ['on', 'off', 'auto']",
 	},
+	cli.StringFlag{
+		Name:  "edge",
+		Usage: "enable edge replication from this cluster, valid values are ['enable', 'disable']",
+		Value: "disable",
+	},
 }
 
 var replicateUpdateCmd = cli.Command{
@@ -139,6 +144,10 @@ EXAMPLES:
   10. Disable proxying and enable synchronous replication for remote target of bucket mybucket with rule ID kxYD.492
      {{.Prompt}} {{.HelpName}} myminio/mybucket --id "kxYD.492" --remote-bucket https://foobar:newpassword@minio.siteb.example.com/targetbucket \
          --sync "enable" --proxy "disable"
+
+  11. Disable edge replication from this cluster to remote target of bucket mybucket with rule ID kxYD.492
+     {{.Prompt}} {{.HelpName}} myminio/mybucket --id "kxYD.492" --remote-bucket https://foobar:newpassword@minio.siteb.example.com/targetbucket \
+        --edge "disable"
 `,
 }
 
@@ -169,6 +178,7 @@ func modifyRemoteTarget(cli *cli.Context, targets []madmin.BucketTarget, arnStr 
 	if foundIdx < 0 {
 		fatalIf(errInvalidArgument().Trace(args...), "`"+arnStr+"` not found in replication config")
 	}
+
 	var ops []madmin.TargetUpdateType
 	bktTarget := targets[foundIdx].Clone()
 	if cli.IsSet("sync") {
@@ -181,6 +191,8 @@ func modifyRemoteTarget(cli *cli.Context, targets []madmin.BucketTarget, arnStr 
 			fatalIf(errInvalidArgument().Trace(args...), "--sync can be either [enable|disable]")
 		}
 	}
+	fmt.Println("........1bx", bktTarget)
+
 	if cli.IsSet("proxy") {
 		proxyState := strings.ToLower(cli.String("proxy"))
 		switch proxyState {
@@ -193,16 +205,32 @@ func modifyRemoteTarget(cli *cli.Context, targets []madmin.BucketTarget, arnStr 
 		}
 	}
 
-	if len(args) == 1 {
-		_, sourceBucket := url2Alias(args[0])
+	if cli.IsSet("edge") {
+		edgeState := strings.ToLower(cli.String("edge"))
+		switch edgeState {
+		case "enable", "disable":
+			bktTarget.Edge = edgeState == "enable"
+			ops = append(ops, madmin.EdgeUpdateType)
+		default:
+			fatalIf(errInvalidArgument().Trace(args...), "--edge can be either [enable|disable]")
+		}
+	}
 
+	fmt.Println("........2x", args)
+	if cli.IsSet("remote-bucket") {
+		//if len(args) == 1 {
+		_, sourceBucket := url2Alias(args[0])
+		fmt.Println("source bucket...", args, sourceBucket)
 		tgtURL := cli.String("remote-bucket")
 		accessKey, secretKey, u := extractCredentialURL(tgtURL)
 		var tgtBucket string
 		if u.Path != "" {
 			tgtBucket = path.Clean(u.Path[1:])
 		}
+		fmt.Println("........3x")
+
 		fatalIf(probe.NewError(s3utils.CheckValidBucketName(tgtBucket)).Trace(tgtURL), "invalid target bucket")
+		fmt.Println("........4x")
 
 		secure := u.Scheme == "https"
 		host := u.Host
@@ -216,9 +244,13 @@ func modifyRemoteTarget(cli *cli.Context, targets []madmin.BucketTarget, arnStr 
 		console.SetColor(cred, color.New(color.FgYellow, color.Italic))
 		creds := &madmin.Credentials{AccessKey: accessKey, SecretKey: secretKey}
 		if tgtBucket != bktTarget.TargetBucket {
+			fmt.Println("........5x")
+
 			fatalIf(errInvalidArgument().Trace(args...), "configured remote target bucket `"+tgtBucket+"` does not match "+bktTarget.TargetBucket+"` for this ARN `"+bktTarget.Arn+"`")
 		}
 		if sourceBucket != bktTarget.SourceBucket {
+			fmt.Println("........6x")
+
 			fatalIf(errInvalidArgument().Trace(args...), "configured source bucket `"+sourceBucket+"` does not match "+bktTarget.SourceBucket+"` for this ARN `"+bktTarget.Arn+"`")
 		}
 		bktTarget.TargetBucket = tgtBucket
@@ -243,6 +275,8 @@ func modifyRemoteTarget(cli *cli.Context, targets []madmin.BucketTarget, arnStr 
 		bktTarget.Path = cli.String("path")
 		ops = append(ops, madmin.PathUpdateType)
 	}
+	fmt.Println("........2xxxxxx")
+
 	return &bktTarget, ops
 }
 
@@ -278,11 +312,16 @@ func mainReplicateUpdate(cliCtx *cli.Context) error {
 	// Get the alias parameter from cli
 	args := cliCtx.Args()
 	aliasedURL := args.Get(0)
+
+	fmt.Println("aliasedURL", aliasedURL, "arg0", args.Get(0), "args>>>", args)
 	// Create a new Client
 	client, err := newClient(aliasedURL)
 	fatalIf(err, "unable to initialize connection.")
+	fmt.Println("1xxxx")
+
 	rcfg, err := client.GetReplication(ctx)
 	fatalIf(err.Trace(args...), "unable to get replication configuration")
+	fmt.Println("12xxx")
 
 	if !cliCtx.IsSet("id") {
 		fatalIf(errInvalidArgument(), "--id is a required flag")
@@ -301,9 +340,12 @@ func mainReplicateUpdate(cliCtx *cli.Context) error {
 	default:
 		fatalIf(err.Trace(args...), "replication is not supported for filesystem")
 	}
+	fmt.Println("13xxx")
+
 	// Create a new MinIO Admin Client
 	admClient, err := newAdminClient(aliasedURL)
 	fatalIf(err, "unable to initialize admin connection.")
+	fmt.Println("14xxx")
 
 	targets, e := admClient.ListRemoteTargets(globalContext, sourceBucket, "")
 	fatalIf(probe.NewError(e).Trace(args...), "unable to fetch remote target.")
@@ -318,16 +360,28 @@ func mainReplicateUpdate(cliCtx *cli.Context) error {
 			break
 		}
 	}
-	if cliCtx.IsSet("remote-bucket") {
+
+	fmt.Println("arn />>>", arn)
+	if cliCtx.IsSet("remote-bucket") || cliCtx.IsSet("sync") ||
+		cliCtx.IsSet("bandwidth") ||
+		cliCtx.IsSet("proxy") ||
+		cliCtx.IsSet("healthcheck-seconds") ||
+		cliCtx.IsSet("path") ||
+		cliCtx.IsSet("edge") {
+		//	{
+		fmt.Println("xxx")
 		bktTarget, ops := modifyRemoteTarget(cliCtx, targets, arn)
+		fmt.Println("modify target....", bktTarget, ops)
 		_, e = admClient.UpdateRemoteTarget(globalContext, bktTarget, ops...)
+		fmt.Println("modify target....", e)
+
 		if e != nil {
 			fatalIf(probe.NewError(e).Trace(args...), "Unable to update remote target `"+bktTarget.Endpoint+"` from `"+bktTarget.SourceBucket+"` -> `"+bktTarget.TargetBucket+"`")
 		}
-	} else {
-		if cliCtx.IsSet("sync") || cliCtx.IsSet("bandwidth") || cliCtx.IsSet("proxy") || cliCtx.IsSet("healthcheck-seconds") || cliCtx.IsSet("path") {
-			fatalIf(errInvalidArgument().Trace(args...), "--remote-bucket is a required flag`")
-		}
+		// } else {
+		// 	if cliCtx.IsSet("sync") || cliCtx.IsSet("bandwidth") || cliCtx.IsSet("proxy") || cliCtx.IsSet("healthcheck-seconds") || cliCtx.IsSet("path") || cliCtx.IsSet("edge") {
+		// 		fatalIf(errInvalidArgument().Trace(args...), "--remote-bucket is a required flag`")
+		// 	}
 	}
 
 	var vDeleteReplicate, dmReplicate, replicasync, existingReplState string
@@ -356,7 +410,7 @@ func mainReplicateUpdate(cliCtx *cli.Context) error {
 			}
 		}
 	}
-
+	fmt.Println(("15xxx"))
 	opts := replication.Options{
 		TagString:    cliCtx.String("tags"),
 		RoleArn:      cliCtx.String("arn"),
@@ -378,7 +432,11 @@ func mainReplicateUpdate(cliCtx *cli.Context) error {
 		opts.ReplicaSync = replicasync
 		opts.ExistingObjectReplicate = existingReplState
 	}
-
+	fmt.Println(("16xxx"))
+	if !(cliCtx.IsSet("remote-bucket") || cliCtx.IsSet("sync") || cliCtx.IsSet("bandwidth") || cliCtx.IsSet("proxy") || cliCtx.IsSet("healthcheck-seconds") || cliCtx.IsSet("path") || cliCtx.IsSet("edge")) ||
+		cliCtx.IsSet("state") || cliCtx.IsSet("tags") || cliCtx.IsSet("storage-class") || cliCtx.IsSet("priority") || cliCtx.IsSet("replicate") {
+		fatalIf(probe.NewError(fmt.Errorf("unable to modify replication rule")), "no valid flags set for update")
+	}
 	fatalIf(client.SetReplication(ctx, &rcfg, opts), "unable to modify replication rule")
 	printMsg(replicateUpdateMessage{
 		Op:  cliCtx.Command.Name,
